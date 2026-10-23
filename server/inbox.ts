@@ -21,7 +21,7 @@ export function inboxState(): InboxState {
 export function classifyMail(subject: string, body: string): InboxItem['category'] {
   const text = (subject + ' ' + body).toLowerCase();
   if (
-    /unfortunately|not (?:be )?(?:moving|proceeding)|other candidates|position has been filled|not selected|regret to inform/.test(
+    /unfortunately|not (?:be )?(?:moving|move|proceeding|proceed)(?: forward)?|(?:won't|will not|cannot|can't) (?:be )?(?:moving|move|proceeding|proceed) forward|other candidates|(?:selected|chosen) another candidate|position has been filled|not selected|regret to inform/.test(
       text,
     )
   )
