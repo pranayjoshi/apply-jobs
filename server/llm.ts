@@ -2,6 +2,23 @@ import { z } from 'zod';
 import { secret } from './secrets.ts';
 import { settings } from './store.ts';
 import type { Profile, Job, Packet } from '../src/types.ts';
+async function responseText(response: Response, maxBytes: number) {
+  const reader = response.body?.getReader();
+  if (!reader) return '';
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel();
+      throw new Error('Model response is too large');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 export async function modelStatus() {
   const s = settings();
   try {
@@ -11,7 +28,7 @@ export async function modelStatus() {
       headers: secret('modelApiKey') ? { Authorization: `Bearer ${secret('modelApiKey')}` } : {},
     });
     if (!r.ok) throw new Error(`Model server returned HTTP ${r.status}`);
-    const d = (await r.json()) as any;
+    const d = JSON.parse(await responseText(r, 1_000_000)) as any;
     return {
       connected: true,
       models: (d.models || d.data || []).map((m: any) => m.name || m.id),
@@ -75,9 +92,11 @@ export async function generate<T>(task: string, input: unknown, schema: z.ZodTyp
         signal: AbortSignal.timeout(180000),
       },
     );
-    if (!r.ok)
-      throw new Error(`Model returned HTTP ${r.status}: ${(await r.text()).slice(0, 180)}`);
-    const d = (await r.json()) as any;
+    if (!r.ok) {
+      const detail = (await responseText(r, 16_000)).slice(0, 180);
+      throw new Error(`Model returned HTTP ${r.status}: ${detail}`);
+    }
+    const d = JSON.parse(await responseText(r, 1_000_000)) as any;
     let text = d.message?.content || d.choices?.[0]?.message?.content || '';
     text = text.replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
     return schema.parse(JSON.parse(text));
