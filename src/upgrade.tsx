@@ -240,6 +240,7 @@ export function ModelConnector({
     [tested, setTested] = useState(false),
     [runtime, setRuntime] = useState<any>(null),
     [pull, setPull] = useState<any>(null);
+  const completedPull = useRef('');
   useEffect(() => {
     void request('/models/runtime').then(setRuntime);
     const timer = setInterval(
@@ -248,7 +249,18 @@ export function ModelConnector({
           .then((v) => {
             setRuntime(v);
             setPull(v.pull);
-            if (v.pull.status === 'completed' && v.pull.model) setModel(v.pull.model);
+            if (
+              v.pull.status === 'completed' &&
+              v.pull.model &&
+              completedPull.current !== v.pull.model
+            ) {
+              completedPull.current = v.pull.model;
+              setModel(v.pull.model);
+              void request('/models/check', {})
+                .then((d) => setModels(d.models))
+                .catch(() => {});
+            }
+            if (v.pull.status === 'running') completedPull.current = '';
           })
           .catch(() => {}),
       2000,
