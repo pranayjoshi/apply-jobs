@@ -322,6 +322,9 @@ export function fromSource(s: WatchSource, x: any): Job | undefined {
       attribution = { name: 'Jooble', url: x.link };
       break;
   }
+  title = String(title || '').trim().slice(0, 500);
+  company = String(company || s.label || s.board).trim().slice(0, 300);
+  location = String(location || '').trim().slice(0, 500);
   if (!url || !title) return;
   try {
     const u = new URL(url);
@@ -333,9 +336,9 @@ export function fromSource(s: WatchSource, x: any): Job | undefined {
     id: store.id(),
     url,
     canonicalKey: canonical(url),
-    title: String(title),
-    company: String(company || s.label || s.board),
-    location: String(location || ''),
+    title,
+    company,
+    location,
     description: text(description),
     ats: detectATS(url),
     source: s.id,
@@ -344,8 +347,8 @@ export function fromSource(s: WatchSource, x: any): Job | undefined {
     createdAt: store.now(),
     status: 'open',
     practice: false,
-    externalId,
-    remote: !!remote || /\bremote\b/i.test(String(location)),
+    externalId: externalId.slice(0, 200),
+    remote: !!remote || /\bremote\b/i.test(location),
     employmentType: jobType(employmentType),
     seniority: level(String(title)),
     salaryMin,
