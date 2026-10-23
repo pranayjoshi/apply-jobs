@@ -134,11 +134,11 @@ const jobType = (v: unknown) =>
     .replace(/[_\s-]/g, '')
     .replace('permanent', 'fulltime');
 export function level(title: string) {
-  if (/intern|apprentice/i.test(title)) return 'intern';
-  if (/junior|\bjr\b|entry.level|graduate/i.test(title)) return 'junior';
-  if (/director|head of|\bvp\b|manager/i.test(title)) return 'manager';
-  if (/lead|staff|principal/i.test(title)) return 'lead';
-  if (/senior|\bsr\b/i.test(title)) return 'senior';
+  if (/\b(?:intern(?:ship)?|apprentice(?:ship)?)\b/i.test(title)) return 'intern';
+  if (/\bjunior\b|\bjr\b|entry[ .-]?level|\bgraduate\b/i.test(title)) return 'junior';
+  if (/\b(?:director|manager)\b|\bhead of\b|\bvp\b/i.test(title)) return 'manager';
+  if (/\b(?:lead|leader|staff|principal)\b/i.test(title)) return 'lead';
+  if (/\bsenior\b|\bsr\b/i.test(title)) return 'senior';
   return 'unknown';
 }
 export function fromSource(s: WatchSource, x: any): Job | undefined {
