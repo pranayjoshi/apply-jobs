@@ -511,7 +511,16 @@ app.post('/api/sources', async (req) => {
     .parse(req.body);
   if (catalog.find((c) => c.kind === d.ats)?.requiresBoard && !d.board)
     throw new Error('This source requires a board identifier or country code');
-  if (store.sources().some((s) => s.ats === d.ats && s.board === d.board))
+  if (
+    store
+      .sources()
+      .some(
+        (s) =>
+          s.ats === d.ats &&
+          s.board === d.board &&
+          (d.ats !== 'lever' || (s.region || 'global') === (d.region || 'global')),
+      )
+  )
     throw new Error('This career board is already in your watchlist');
   const source: WatchSource = {
     ...d,
