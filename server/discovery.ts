@@ -597,7 +597,11 @@ export async function syncOne(s: WatchSource) {
 export function freshness(j: Job): Job['status'] {
   if (j.validThrough && Date.parse(j.validThrough) < Date.now()) return 'closed';
   if (j.status === 'closed') return 'closed';
-  if (Date.now() - Date.parse(j.lastSeenAt || j.createdAt) > 7 * 86400000) return 'stale';
+  const evidenceAt =
+    j.freshness === 'verified'
+      ? j.lastCheckedAt || j.lastSeenAt || j.createdAt
+      : j.lastSeenAt || j.createdAt;
+  if (Date.now() - Date.parse(evidenceAt) > 7 * 86400000) return 'stale';
   return j.status;
 }
 export function matches(j: Job, s: Settings) {
