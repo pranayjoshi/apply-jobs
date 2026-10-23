@@ -28,7 +28,9 @@ try {
       paused: s.settings.paused,
     };
   } else if (command === 'jobs') {
-    const query = new URLSearchParams({ matching: 'false', q: args.join(' ') });
+    const text = args.join(' ');
+    if (text.length > 300) throw new Error('Search text must be 300 characters or less.');
+    const query = new URLSearchParams({ matching: 'false', q: text });
     value = await request(`/jobs/search?${query}`);
   } else if (command === 'sources') value = (await request('/state')).sources;
   else if (command === 'discover') value = await request('/discovery/start', {});
