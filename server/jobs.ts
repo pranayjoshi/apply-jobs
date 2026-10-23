@@ -33,6 +33,8 @@ export function canonical(url: string) {
     u.pathname = u.pathname.replace(/\/apply$/, '');
   if (ats === 'ashby' && /^\/[^/]+\/[^/]+\/application$/.test(u.pathname))
     u.pathname = u.pathname.replace(/\/application$/, '');
+  if (ats === 'workable' && /^\/j\/[^/]+\/apply$/.test(u.pathname))
+    u.pathname = u.pathname.replace(/\/apply$/, '');
   if (u.hostname === 'boards.greenhouse.io') u.hostname = 'job-boards.greenhouse.io';
   u.searchParams.sort();
   return u.href;

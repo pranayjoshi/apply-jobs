@@ -768,12 +768,15 @@ export function parseBoard(input: string): Partial<WatchSource> {
       region: u.hostname.includes('.eu.') ? 'eu' : 'global',
       url: u.href,
     };
-  if (u.hostname === 'apply.workable.com' && segments[0])
+  if (u.hostname === 'apply.workable.com') {
+    if (!segments[0] || segments[0] === 'j')
+      throw new Error(
+        'Paste the company career page, such as https://apply.workable.com/careers, rather than a job short link',
+      );
     return { ats: 'workable', board: segments[0], url: u.href };
+  }
   if (u.hostname.endsWith('.workable.com'))
     return { ats: 'workable', board: u.hostname.split('.')[0], url: u.href };
-  if (u.hostname === 'apply.workable.com' && segments[0])
-    return { ats: 'workable', board: segments[0], url: u.href };
   throw new Error('Choose the platform and board identifier for this career page');
 }
 export async function checkActive(j: Job) {
