@@ -115,8 +115,8 @@ export async function publicFetch(
         await r.body?.cancel();
         if (!l) throw new Error('Invalid redirect');
         const next = await validatedURL(new URL(l, u).href);
-        if (options.headers && next.url.origin !== u.origin)
-          throw new Error('Authenticated redirects to another origin are not allowed');
+        if ((options.headers || options.body) && next.url.origin !== u.origin)
+          throw new Error('Requests with headers or a body cannot redirect to another origin');
         u = next.url;
         addresses = next.addresses;
         continue;
