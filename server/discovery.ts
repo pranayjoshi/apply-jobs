@@ -514,6 +514,7 @@ export async function syncOne(s: WatchSource) {
               for (let page = 1; page <= (s.ats === 'jooble' ? 1 : 2); page++) {
                 let rows: any[] = [];
                 if (s.ats === 'adzuna') {
+                  const maxAgeDays = store.settings().maxAgeDays ?? 30;
                   const qs = new URLSearchParams({
                     app_id: secret('adzunaAppId'),
                     app_key: secret('adzunaApiKey'),
@@ -522,22 +523,24 @@ export async function syncOne(s: WatchSource) {
                     where: location,
                     sort_by: 'date',
                     results_per_page: '50',
-                    max_days_old: String(Math.min(60, store.settings().maxAgeDays || 30)),
                   });
+                  if (maxAgeDays > 0)
+                    qs.set('max_days_old', String(Math.min(60, maxAgeDays)));
                   raw = await read(
                     `https://api.adzuna.com/v1/api/jobs/${b || 'us'}/search/${page}?${qs}`,
                   );
                   rows = raw.results;
                 } else if (s.ats === 'usajobs') {
+                  const maxAgeDays = store.settings().maxAgeDays ?? 30;
                   const qs = new URLSearchParams({
                     Keyword: role,
                     LocationName: location,
-                    DatePosted: String(Math.min(60, store.settings().maxAgeDays || 30)),
                     ResultsPerPage: '100',
                     Page: String(page),
                     SortField: 'opendate',
                     SortDirection: 'Desc',
                   });
+                  if (maxAgeDays > 0) qs.set('DatePosted', String(Math.min(60, maxAgeDays)));
                   raw = await read(`https://data.usajobs.gov/api/Search?${qs}`, {
                     headers: {
                       'Authorization-Key': secret('usajobsApiKey'),
