@@ -144,8 +144,8 @@ export async function enterApplication(page: Page) {
       const employer = urls.find(
         (l) =>
           /apply/i.test(l.text) &&
-          /greenhouse\.io|lever\.co|ashbyhq\.com|smartrecruiters\.com|myworkdayjobs\.com|workable\.com/.test(
-            l.url,
+          ['greenhouse', 'lever', 'ashby', 'smartrecruiters', 'workday', 'workable'].includes(
+            adapterFor(l.url).id,
           ),
       );
       if (employer) {
