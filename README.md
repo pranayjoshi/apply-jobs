@@ -1,12 +1,12 @@
 # Apply Jobs
 
-Your private, local-first job application assistant. Discover opportunities, prepare documents from confirmed facts, fill application forms in a real browser, and keep a receipt for each confirmed submission. There are no application credits or monthly quotas.
+An open-source, local job application assistant. Connect a local model or your own API, discover matching opportunities, prepare documents from confirmed facts, fill employer forms in a dedicated browser, and track applications. Apply Jobs imposes no application-credit quota. Source providers, employer sites, your hardware, and model services still have limits.
 
-Apply Jobs is an independent implementation. It does not use Tsenta's backend, code, accounts, or subscription.
+This is an independent implementation, with no Tsenta backend, code, accounts, or subscription. MIT licensed.
 
 ## Run locally
 
-Requires **Node.js 24+** and npm. macOS, Linux, and Windows can run the service; browser availability depends on Playwright's supported platforms.
+Requires **Node.js 24+** and npm:
 
 ```sh
 npm install
@@ -15,119 +15,126 @@ npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:4318**. On this Mac, `start.command` also starts the built app and uses the available bundled Node runtime if the default Node is too old.
+Open **http://127.0.0.1:4318**. On this Mac, `start.command` also launches the built app and selects the available bundled Node runtime if needed. Run one service per data folder. This is a personal loopback service, not a hosted multi-user application.
 
-For development:
+For development, `npm run dev` serves the dashboard on port 4317 and the API on 4318. Production serves both on 4318.
 
-```sh
-npm run dev
-```
+## Guided onboarding
 
-The dashboard runs at http://127.0.0.1:4317 and proxies the service at port 4318. Only one instance should use a data folder at a time. The server binds to loopback; it is not a hosted multi-user service.
+The **Get started** wizard guides you through four steps:
 
-## First application
+1. **Connect a model.** Select Ollama, LM Studio, llama.cpp, or an OpenAI-compatible API. Detect available models, select one, and run an actual structured-output inference check. An optional API key is saved in the local encrypted vault. Ollama users can install the official project-local runtime on macOS/Linux and download a recommended model with progress and cancellation.
+2. **Review your profile.** Import TXT, PDF, DOCX, or an image résumé. Scanned PDFs/images use local English OCR; the first OCR use downloads language data. Review extracted facts, contact details, employment and education history before confirming. OCR examines up to four scanned pages; text extraction accepts up to thirty PDF pages.
+3. **Set job filters.** Choose titles, locations, remote work, job type, seniority, posting age, salary/currency, excluded companies, and optional minimum fit. Select public feeds and company boards. Salary filtering uses reported amounts without exchange-rate conversion; you can exclude listings with missing salary.
+4. **Fetch matches.** Follow per-source progress, errors, timestamps, and coverage. Open Discover to browse paginated results sorted by fit or publication date.
 
-1. **My profile:** enter your contact details, experience, education, skills, and optional exact saved answers. Import a text-based PDF or TXT résumé if helpful. Confirm the facts and save.
-2. **Settings:** optionally connect Ollama, LM Studio, or llama.cpp. Check the connection, choose an installed instruction model, and save. Factual form filling and PDF creation work without a model.
-3. **Discover jobs → Practice:** create the local practice opportunity and add it to the application queue.
-4. Open the application. A dedicated browser fills known fields and uploads the generated résumé. Answer any unresolved required questions in the dashboard, apply changes, and choose **Resume & validate**.
-5. Review the answers and PDF, then approve the practice submission. A receipt appears when confirmation is detected. Nothing is sent to an employer by the practice form.
-6. Add a real public job URL or follow company career boards to start your shortlist.
+Profile extraction and generated answers need your review. Do not use invented sample facts for real applications.
 
-A visible browser is recommended. Login, MFA, CAPTCHA, custom controls, and unsupported steps pause for the user. Continue in that browser, then choose Resume. Browser sessions are stored in a dedicated local profile rather than your everyday browser profile.
+## Model connections
 
-## Local models
-
-### Ollama
-
-Install [Ollama](https://ollama.com/download), start its local server, and pull an instruction model appropriate for your memory. Set the endpoint to `http://localhost:11434`. Select the model name shown by **Check connection & find models**.
-
-On this workspace, the official Ollama runtime and `qwen3:4b` are installed under the ignored `.apply-jobs/` directory. Apply Jobs starts that project-local server when needed and stops only the server it owns. It does not replace a pre-existing Ollama service. Models stay inside this workspace.
-
-### LM Studio or llama.cpp
-
-Start the local OpenAI-compatible server. Set the provider to **LM Studio / llama.cpp**, and use its `/v1` base URL, commonly `http://localhost:1234/v1`. The loaded model must support chat and JSON-schema structured outputs. API-key authentication is not currently implemented; use a trusted local endpoint without authentication.
-
-Model tasks are serialized and bounded. Résumé tailoring selects existing profile facts and preserves their exact wording; it does not invent new achievements. The optional cover letter is a draft for review and can be copied into the appropriate application answer. Model-generated cover letters are not auto-submitted. No cloud fallback is configured. Choosing a remote endpoint explicitly sends relevant candidate text to that endpoint.
-
-## Discovery and browser coverage
-
-| Platform | Discovery | Browser application support |
+| Provider | Typical endpoint | Setup |
 |---|---|---|
-| Greenhouse | Documented public Job Board feed | Label-based fields, standard selects, uploads, radio groups, final review. Custom controls may require intervention. |
-| Lever | Documented public global and European Postings feeds | Apply-link navigation, standard fields/uploads, review and confirmation. |
-| Ashby | Documented public postings feed | Standard labeled controls, uploads, conditional steps; custom widgets may need manual selection. |
-| Workday/custom | Pasted public URL | Assisted generic form filling; tenant-specific work history/date widgets are not a certified automated adapter. |
+| Ollama | `http://localhost:11434` | Install/start Ollama or use the wizard's project-local installer; download an instruction model. |
+| LM Studio | `http://localhost:1234/v1` | Load a model, open Developer, start the server. Supply a token if authentication is enabled. |
+| llama.cpp | `http://localhost:8080/v1` | Start its compatible server with a loaded instruction model. |
+| Your API | Your provider's `/v1` base | Supply your key and model identifier; chat plus JSON-schema structured outputs must work. |
 
-A company board identifier is the slug in its career URL. The watchlist polls while the service is running, with a configurable interval and retry backoff. Public APIs retrieve job postings; applications are submitted through employer-hosted forms. Employer API keys are not required or obtained.
+The wizard checks inference, not merely a successful model-list request. Hardware recommendations are estimates. The macOS/Linux installer downloads an official Ollama release, verifies its published SHA-256 digest, and installs inside the private workspace. Windows uses manual vendor installation. Apply Jobs starts/stops only the local Ollama process it owns and does not replace a pre-existing service.
 
-These browser capabilities have been verified on the built-in controlled form. They are **not a claim of live submission certification on every tenant**. Every real employer customizes forms. The worker uses accessible labels, current field values, and platform URL recognition; it stops when it cannot establish a safe next step. There is no CAPTCHA bypass, stealth infrastructure, global company index, or guarantee of interview outcomes. Closed-job synchronization is not yet comprehensive; verify a role is open before applying.
+On this workspace, the project-local Ollama runtime and `qwen3:4b` are installed. Model tasks are serialized. Résumé tailoring selects existing facts and preserves their wording. Cover letters and proposed question answers are reviewable drafts. Selecting a remote endpoint sends the relevant candidate text to that provider; there is no automatic cloud fallback. Free local weights retain their own licenses; API usage may cost money.
 
-## Autopilot
+## Discovery coverage
 
-Autopilot is off by default. Save your roles, locations, excluded employers, and minimum preference score. Confirm the profile, then explicitly enable unattended applications. It can queue matching Greenhouse, Lever, and Ashby postings and submit forms whose required fields resolve from confirmed profile facts or exact saved answers. A global pause stops future automation actions.
+| Source | Connection | Coverage and limits |
+|---|---|---|
+| Greenhouse, Lever, Ashby | Company career URL/board identifier | Public employer feeds. Lever supports global and EU boards. |
+| SmartRecruiters, Workable | Company career URL/identifier | Public postings, pagination/details where supported. Workable needs a company career page, not its `/j/` job short link. |
+| Remotive | No key | Remote jobs; feed is delayed 24 hours. Refresh at most once every six hours. |
+| Remote OK | No key | Public feed, cached at least an hour, with source attribution. |
+| Arbeitnow | No key | Public feed, hourly refresh, bounded pagination. A capped fetch is labeled partial. |
+| Adzuna | App ID and app key | Country-specific searches. Your account's access terms and limits apply. |
+| USAJOBS | API key and registration email | Federal jobs with title/location/date filters. |
+| Jooble | API key; optional regional domain | Search API. Its documented free key has 500 lifetime requests. |
+| LinkedIn, Indeed, ZipRecruiter | Browser capture or pasted public URL | Save the selected posting and follow an employer application link. No unrestricted global search or Easy Apply automation is claimed. |
 
-- Title/location/excluded-company filters are hard gates for Autopilot.
-- Matching scores are simple, explainable keyword/preference scores, not hiring probabilities.
-- Only one browser application runs at a time. Logins, challenges, unknown answers, and missing controls enter **Needs you**.
-- Hardware, server uptime, employer rules, and throttling constrain actual volume. “No quotas” does not mean infinite throughput.
-- Do not enable Autopilot until you have reviewed your profile, tested your target employer forms, and understood what your saved answers authorize.
+Add public feeds/company boards from Discover. Configure credentialed providers in **Integrations** and add their source in Discover. Credentialed search sources default to manual refresh so background polling does not silently spend your allowance. Searches and pagination are bounded; results are not a census of every available job. No service can guarantee all jobs across private, login-only, delayed, or restricted feeds.
 
-## Submission and recovery
+Refresh respects each source's minimum interval and retry backoff. The UI shows last sync, next eligible sync, errors, publication date, and completeness. Complete employer snapshots can mark missing jobs closed; missing aggregator listings become stale. Partial or failed fetches preserve previous jobs. Cross-source observations prevent one disappearance from overriding another active source. Expiry dates and source age filter the active shortlist. A best-effort posting check runs before application; blocked pages do not prove a role is closed.
 
-Final approval binds to the current browser form snapshot and profile version. Changed values or a changed profile require another review. A local intent record is saved before clicking Submit, followed by a receipt only when positive confirmation text is observed. Confirmation detection can miss nonstandard messages.
+Source attribution and original links remain visible. Publication dates are those supplied by the provider, not the time Apply Jobs discovered the posting. Fit scores are explainable keyword/preference scores, not hiring probabilities.
 
-If the service restarts during submission, or submission lacks a detected confirmation, the application becomes **Confirm outcome**. It is never automatically retried. Check the employer account or confirmation email and explicitly reconcile the result in the dashboard. Exactly-once delivery cannot be guaranteed across a third-party browser form.
+## Browser capture extension
+
+In **Integrations**, download the extension ZIP and extract it. In Chrome/Edge extensions, enable Developer mode and load the extracted folder as an unpacked extension. Generate a pairing code in Apply Jobs and enter it in the extension within five minutes. See [extension/README.md](extension/README.md).
+
+On a job page, open the extension, review the captured title/company/location and employer application URL, then save it. It reads the selected active tab when invoked, rather than crawling your browsing history. The token is bound to that extension origin and can be revoked in Integrations. The extension connects to the running local service.
+
+## Application workflow
+
+Start with **Discover → Practice**. This controlled form exercises document upload, required-answer intervention, review, submission, and receipt creation without contacting an employer.
+
+For a real role, confirm your profile, queue the job, and open the application. Five named browser strategies cover Greenhouse, Lever, Ashby, SmartRecruiters, and Workable. They handle accessible fields, standard/custom selection controls, radio groups, résumé uploads, conditional steps, and employer handoffs where recognizable. Workday and generic sites use assisted mode. LinkedIn/Indeed capture routes require employer handoff or manual steps.
+
+Review the generated résumé, fact differences, cover letter, and answers. A model can propose text answers grounded in profile fact IDs; save them only after review. Confirm the cover letter before its upload. Unknown questions, login, MFA, CAPTCHA, unsupported widgets, and ambiguous steps pause for you. Use the dedicated browser to finish the step, then Resume & validate.
+
+These strategies are implemented and checked on controlled browser forms. Live submission compatibility has not been certified for every employer tenant. Employer customization can require manual work. No CAPTCHA bypass, stealth service, or employer private API is included.
+
+## Autopilot and recovery
+
+Autopilot is off by default. It requires a confirmed profile and explicit activation. It queues supported automatic-platform jobs that satisfy the saved title/location/company/salary/age/type policy and minimum score. Unresolved answers and unsupported steps still pause. One browser application runs at a time; global Pause stops future actions. Review target forms and your saved answers before enabling unattended submissions.
+
+Final approval binds to the current form snapshot and profile version. Changed values require renewed review. The worker saves intent before clicking Submit and records a receipt only after recognized confirmation. An interrupted or unconfirmed submission becomes **Confirm outcome** and is never automatically retried. Inspect the employer account/email and reconcile it yourself. Third-party browser forms cannot provide a transactional exactly-once guarantee.
+
+## Read-only inbox
+
+Optionally connect an IMAP mailbox in **Integrations** using its TLS hostname, username, and app password. Sync searches the last thirty days for application/recruiting messages, reads bounded snippets without attachments, categorizes confirmations/interviews/rejections, and conservatively matches applications. Ambiguous messages remain unlinked until you choose an application.
+
+Recruiter updates are separate from submission receipts. Reply drafts stay local for you to copy and review. The app does not send mail. Real mailbox verification requires your account credentials; providers may require enabling IMAP or issuing an app password.
 
 ## Data and privacy
 
-All workspace files are stored under `.apply-jobs/` by default:
+Private files live in the ignored `.apply-jobs/` directory:
 
 ```text
-apply-jobs.sqlite      profile, settings, jobs, queue, answers, activity
-browser/               dedicated browser profile and session state
-documents/             original résumé and per-application PDFs
-receipts/              screenshots and JSON submission receipts
+apply-jobs.sqlite      profile, jobs, queue, answers, inbox snippets, activity
+vault.enc / vault.key encrypted API keys, mailbox credentials, pairing token
+browser/              dedicated browser session state
+documents/            source résumé and application PDFs
+receipts/             screenshots and submission receipts
+runtime/              optional managed Ollama executable
+ocr-cache/            local OCR language data
 ```
 
-The directory is ignored by Git and created with restrictive permissions. SQLite and browser files are **not encrypted by the app**. Use device encryption and protect backups. Secrets can reside in the dedicated browser's session state; no employer password is requested through the dashboard. Avoid sharing this directory or exports. The UI's export includes personal profile and application data but excludes browser session files.
+The vault uses AES-256-GCM and restrictive file permissions. Its key lives on the same device; it does not protect against a compromised local account. SQLite, documents, receipts, and browser sessions are not encrypted by the app. Protect the device and backups. Export contains private candidate/application data but excludes vault secrets and browser sessions. No employer password is requested in the dashboard.
 
-The dashboard ships fonts locally and has no analytics. Internet access is used for public job discovery, employer forms, and an explicitly selected remote model endpoint, if any. Local API mutations require an application header and validate browser origins. Job imports reject private-network destinations; model endpoint configuration is separate. External page text cannot invoke shell commands or choose arbitrary uploads. The browser can upload only the application résumé generated for that attempt.
-
-Stop the app before deleting `.apply-jobs/` to erase the workspace. There is no automated email sync, recruiter email sending, native mobile client, or hosted deployment in this release. Use manual application status confirmation when needed.
+The dashboard uses local fonts and has no analytics. Network access is used for job feeds, employer pages, explicitly selected model providers, optional runtime/model/OCR downloads, and optional IMAP. Local mutations require the app header and validated origins. Extension access is limited to pairing/token endpoints. Job fetching blocks private network destinations. External page text cannot invoke commands or select arbitrary upload files. Do not expose this service to the public Internet.
 
 ## CLI and MCP
 
 ```sh
 npm run cli -- help
-npm run cli -- jobs
+npm run cli -- jobs engineer
+npm run cli -- sources
+npm run cli -- discover
 npm run cli -- add https://public-job-url.example/role
 npm run cli -- pause
 npm run cli -- export my-private-export.json
-```
-
-The optional MCP stdio server uses the same running local service:
-
-```sh
 npm run mcp
 ```
 
-For an MCP client, launch the project's Node executable with `--import tsx /absolute/path/to/apply-jobs/scripts/mcp.ts` and set the working directory to this project (or use an absolute path to the local `tsx` import). It exposes job listing/import, application queuing/status/resume, and pause controls. Individual final approval stays in the dashboard. If you connect a cloud-based assistant, that assistant may receive private data returned by the tools; a local service does not make a cloud client private.
+The MCP stdio server exposes paginated job search/import, latest-job refresh/progress, application queue/status/resume, and pause. Final individual approval stays in the dashboard. Launch Node with `--import tsx /absolute/path/to/apply-jobs/scripts/mcp.ts`, with this project as working directory. A cloud MCP client can receive the private information returned by tools.
 
-`APPLY_JOBS_URL` changes the CLI/MCP service URL. `PORT` changes the API port. `APPLY_JOBS_DATA` changes the private data folder. `APPLY_JOBS_CHROME` optionally selects an installed Chromium executable. `APPLY_JOBS_HEADLESS=1` is useful for controlled automation checks. Environment variables must be set by your shell/process manager; `.env` files are examples and are not automatically loaded.
+`APPLY_JOBS_URL` changes CLI/MCP service URL; `PORT` the server port; `APPLY_JOBS_DATA` the private folder; `APPLY_JOBS_CHROME` an optional Chromium executable; `APPLY_JOBS_HEADLESS=1` enables headless controlled checks. Environment files are examples, not automatically loaded.
 
-## Verification
+## Verification and scope
 
 ```sh
 npm run build
 npm test
+npm run verify:integrations
 npm run verify:workflow
 ```
 
-The focused checks cover factual answers, hard policy gates, private-network blocking, PDF text extraction, and an isolated complete practice application. The workflow also checks deduplication, changed approval hashes, pause behavior, receipts, and restart recovery. It creates a disposable temporary workspace and sends no applications to employers.
+The focused checks cover policy/identity, filters and freshness, encrypted secrets, pairing/origins, mail matching, browser fields, model connection/pull, pagination, document upload, review hashes, receipts, and restart recovery. Controlled checks use separate temporary workspaces and send no employer applications. See [docs/verification.md](docs/verification.md) for live-feed evidence, real local-model checks, and remaining account/platform validation.
 
-For development, the service and browser worker live in `server/`; dashboard components and styles are in `src/`. The implementation uses React, TypeScript, Fastify, SQLite, Playwright, Zod, and local-model HTTP adapters. See [docs/architecture.md](docs/architecture.md) for extension points and limitations.
-
-## License
-
-MIT. Model weights and dependencies retain their own licenses. No Tsenta or REA source is included in the runtime.
+React/TypeScript UI is in `src/`, service/browser code in `server/`, and CLI/MCP/verification in `scripts/`. See [docs/architecture.md](docs/architecture.md). Native mobile clients, hosted multi-user deployment, sending recruiter emails, and universal employer-form compatibility are outside this release.
