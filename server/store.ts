@@ -107,11 +107,17 @@ export function putJob(j: Job): Job {
   return j;
 }
 export function applications(): Application[] {
-  return (
-    db.prepare('SELECT data FROM applications ORDER BY rowid DESC').all() as { data: string }[]
-  )
-    .map((r) => JSON.parse(r.data))
-    .map((a) => ({ ...a, job: job(a.jobId)! }));
+  const rows = db
+    .prepare(
+      `SELECT applications.data AS applicationData, jobs.data AS jobData
+       FROM applications JOIN jobs ON jobs.id=applications.job_id
+       ORDER BY applications.rowid DESC`,
+    )
+    .all() as { applicationData: string; jobData: string }[];
+  return rows.map(({ applicationData, jobData }) => ({
+    ...(JSON.parse(applicationData) as Application),
+    job: JSON.parse(jobData) as Job,
+  }));
 }
 export function application(aid: string): Application | undefined {
   const row = db.prepare('SELECT data FROM applications WHERE id=?').get(aid) as
