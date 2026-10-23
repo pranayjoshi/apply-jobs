@@ -7,5 +7,8 @@ for (const name of await readdir('extension')) {
     files[name] = await readFile(path.join('extension', name));
 }
 await mkdir('public/downloads', { recursive: true });
-await writeFile('public/downloads/apply-jobs-extension.zip', zipSync(files));
+await writeFile(
+  'public/downloads/apply-jobs-extension.zip',
+  zipSync(files, { mtime: new Date(1980, 0, 2, 12) }),
+);
 console.log('Packaged browser extension.');
