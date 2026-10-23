@@ -61,11 +61,16 @@ async function openSession(a: Application) {
     },
   );
   const practiceOrigin = `http://127.0.0.1:${process.env.PORT || 4318}`;
+  let blockedHttpRequest = false;
   await context.route('**/*', async (route) => {
     const u = route.request().url();
     try {
       if (u.startsWith('data:') || u.startsWith('blob:')) return route.continue();
       if (a.job.practice && new URL(u).origin === practiceOrigin) return route.continue();
+      if (!a.job.practice && new URL(u).protocol !== 'https:') {
+        blockedHttpRequest = true;
+        return route.abort();
+      }
       await publicURL(u);
       await route.continue();
     } catch {
@@ -80,6 +85,10 @@ async function openSession(a: Application) {
     return { context, page };
   } catch (e) {
     await closeSession(a.id);
+    if (blockedHttpRequest)
+      throw new Error(
+        'The employer page used an insecure HTTP request. Use its HTTPS application link.',
+      );
     throw e;
   }
 }
