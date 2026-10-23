@@ -35,7 +35,7 @@ Known constraints:
 - Custom accessible controls can need manual selection; radio groups need useful question/group labels.
 - Success detection is based on visible text and may miss custom confirmation wording.
 - Some closed roles remain in the local shortlist; comprehensive closure reconciliation is not implemented.
-- Lever EU feed selection is not yet exposed.
+- Lever sources can use the global or EU Postings API; the region is selected when connecting a board.
 - Candidate work authorization is a basic user-defined target-country answer; save exact question-specific answers for jurisdiction or timing differences.
 - Screenshots, browser sessions, and SQLite are local but not encrypted by the app.
 - DNS validation rejects known private destinations. A hostile DNS-rebinding target is outside the current local-service threat model; do not expose the API remotely.

@@ -55,7 +55,7 @@ Model tasks are serialized and bounded. Résumé tailoring selects existing prof
 | Platform | Discovery | Browser application support |
 |---|---|---|
 | Greenhouse | Documented public Job Board feed | Label-based fields, standard selects, uploads, radio groups, final review. Custom controls may require intervention. |
-| Lever | Documented public global Postings feed | Apply-link navigation, standard fields/uploads, review and confirmation. EU discovery feed is not yet included. |
+| Lever | Documented public global and European Postings feeds | Apply-link navigation, standard fields/uploads, review and confirmation. |
 | Ashby | Documented public postings feed | Standard labeled controls, uploads, conditional steps; custom widgets may need manual selection. |
 | Workday/custom | Pasted public URL | Assisted generic form filling; tenant-specific work history/date widgets are not a certified automated adapter. |
 
