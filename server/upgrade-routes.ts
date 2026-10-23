@@ -123,7 +123,7 @@ export async function registerUpgradeRoutes(
       .parse(req.query);
     return queryJobs({
       ...q,
-      matching: q.matching !== 'false',
+      matching: q.matching === undefined ? !q.status : q.matching === 'true',
       remoteOnly: q.remoteOnly === 'true',
     });
   });
