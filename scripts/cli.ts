@@ -15,7 +15,7 @@ try {
   let value: any;
   if (command === 'help') {
     console.log(
-      `Apply Jobs CLI\n\n  npm run cli -- status\n  npm run cli -- jobs\n  npm run cli -- add <public-job-url>\n  npm run cli -- apply <job-id>\n  npm run cli -- applications\n  npm run cli -- resume <application-id>\n  npm run cli -- pause\n  npm run cli -- unpause\n  npm run cli -- export [output.json]\n\nThe local Apply Jobs service must be running. Review and final submission are available in the dashboard.\n`,
+      `Apply Jobs CLI\n\n  npm run cli -- status\n  npm run cli -- jobs [search]\n  npm run cli -- sources\n  npm run cli -- discover\n  npm run cli -- add <public-job-url>\n  npm run cli -- apply <job-id>\n  npm run cli -- applications\n  npm run cli -- resume <application-id>\n  npm run cli -- pause\n  npm run cli -- unpause\n  npm run cli -- export [output.json]\n\nThe local Apply Jobs service must be running. Review and final submission are available in the dashboard.\n`,
     );
     process.exit(0);
   }
@@ -27,7 +27,11 @@ try {
       queued: s.applications.filter((a: any) => a.stage === 'queued').length,
       paused: s.settings.paused,
     };
-  } else if (command === 'jobs') value = (await request('/state')).jobs;
+  } else if (command === 'jobs') {
+    const query = new URLSearchParams({ matching: 'false', q: args.join(' ') });
+    value = await request(`/jobs/search?${query}`);
+  } else if (command === 'sources') value = (await request('/state')).sources;
+  else if (command === 'discover') value = await request('/discovery/start', {});
   else if (command === 'applications') value = (await request('/state')).applications;
   else if (command === 'add' && args[0]) value = await request('/jobs/import', { url: args[0] });
   else if (command === 'apply' && args[0]) value = await request(`/jobs/${args[0]}/apply`, {});
