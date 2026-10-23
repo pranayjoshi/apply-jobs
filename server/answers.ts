@@ -12,17 +12,6 @@ export function answerField(
   p: Profile,
 ): { answer: string; source: string; resolved: boolean } {
   const label = normalize(f.label);
-  const saved = p.answers.find((x) => normalize(x.question) === label);
-  if (saved) {
-    const answer = f.options.length
-      ? f.options.find((option) => normalize(option) === normalize(saved.answer))
-      : saved.answer;
-    if (!answer)
-      return { answer: '', source: 'Choose an option', resolved: !f.required };
-    return { answer, source: 'Saved answer', resolved: true };
-  }
-  if (/reference|referee|recommender|supervisor|emergency contact/.test(label))
-    return { answer: '', source: 'Needs your answer', resolved: !f.required };
   const history = p.employmentHistory?.[f.occurrence || 0],
     education = p.educationHistory?.[f.occurrence || 0];
   const structured: [RegExp, string | undefined, string][] = [
@@ -36,6 +25,16 @@ export function answerField(
   ];
   const fact = structured.find(([pattern, value]) => value && pattern.test(label));
   if (fact) return { answer: fact[1]!, source: fact[2], resolved: true };
+  const saved = p.answers.find((x) => normalize(x.question) === label);
+  if (saved) {
+    const answer = f.options.length
+      ? f.options.find((option) => normalize(option) === normalize(saved.answer))
+      : saved.answer;
+    if (!answer) return { answer: '', source: 'Choose an option', resolved: !f.required };
+    return { answer, source: 'Saved answer', resolved: true };
+  }
+  if (/reference|referee|recommender|supervisor|emergency contact/.test(label))
+    return { answer: '', source: 'Needs your answer', resolved: !f.required };
   const full = p.name.trim().split(/\s+/);
   const rules: [RegExp, string, string][] = [
     [/^(full name|name|your name|legal name)$/, p.name, 'Name'],
