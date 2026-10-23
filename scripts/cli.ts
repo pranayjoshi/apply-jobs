@@ -1,6 +1,6 @@
 import { chmod, writeFile } from 'node:fs/promises';
 const [command = 'help', ...args] = process.argv.slice(2);
-const base = process.env.APPLY_JOBS_URL || 'http://127.0.0.1:4318';
+const base = (process.env.APPLY_JOBS_URL || 'http://127.0.0.1:4318').replace(/\/+$/, '');
 async function request(route: string, body?: unknown) {
   const r = await fetch(base + '/api' + route, {
     method: body === undefined ? 'GET' : 'POST',

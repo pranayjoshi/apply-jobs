@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-const base = process.env.APPLY_JOBS_URL || 'http://127.0.0.1:4318';
+const base = (process.env.APPLY_JOBS_URL || 'http://127.0.0.1:4318').replace(/\/+$/, '');
 const server = new McpServer({ name: 'apply-jobs', version: '0.2.0' });
 async function request(route: string, body?: unknown) {
   const r = await fetch(base + '/api' + route, {
