@@ -57,13 +57,15 @@ export function answerField(
   if (match && match[1]) {
     let answer = match[1];
     if (f.options.length) {
-      const candidate =
-        f.options.find((o) => normalize(o) === normalize(answer)) ||
-        f.options.find(
-          (o) => normalize(o).startsWith(normalize(answer)) && normalize(answer).length >= 2,
-        );
-      if (!candidate) return { answer: '', source: 'Choose an option', resolved: false };
-      answer = candidate;
+      const normalizedAnswer = normalize(answer);
+      const candidate = f.options.find((o) => normalize(o) === normalizedAnswer);
+      const partialMatches = f.options.filter(
+        (o) => normalize(o).startsWith(normalizedAnswer) && normalizedAnswer.length >= 2,
+      );
+      const unambiguousPartial = partialMatches.length === 1 ? partialMatches[0] : undefined;
+      if (!candidate && !unambiguousPartial)
+        return { answer: '', source: 'Choose an option', resolved: false };
+      answer = candidate || unambiguousPartial!;
     }
     return { answer, source: match[2], resolved: true };
   }
