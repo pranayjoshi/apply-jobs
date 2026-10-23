@@ -35,6 +35,7 @@ import {
   exclusiveProcess,
   submitApplication,
   applyAnswers,
+  withApplicationLock,
   closeSession,
   shutdownBrowsers,
   hasSession,
@@ -350,47 +351,53 @@ app.post('/api/jobs/:id/apply', async (req: any) => {
   return a;
 });
 app.post('/api/applications/:id/prepare', async (req: any) => {
-  const a = getApp(req);
-  if (!['queued', 'needs_user', 'failed'].includes(a.stage) || hasSession(a.id))
-    throw new Error('Close the browser before preparing new documents');
-  const p = store.profile();
-  if (!p.confirmed) throw new Error('Confirm your profile first');
-  const { useModel } = z.object({ useModel: z.boolean() }).parse(req.body);
-  store.update(a.id, { stage: 'preparing', message: 'Preparing application documents…' });
-  try {
-    const packet = await preparePacket(p, a.job, useModel);
-    await renderPDF(a.id, packet.resumeText);
-    return store.update(a.id, {
-      packet,
-      profileVersion: p.version,
-      profileSnapshot: p,
-      stage: 'needs_user',
-      message: 'Documents are ready. Open the browser to continue.',
-    });
-  } catch (e) {
-    store.update(a.id, { stage: 'needs_user', message: (e as Error).message });
-    throw e;
-  }
+  const aid = pid.parse(req.params.id);
+  return withApplicationLock(aid, async () => {
+    const a = getApp(req);
+    if (!['queued', 'needs_user', 'failed'].includes(a.stage) || hasSession(a.id))
+      throw new Error('Close the browser before preparing new documents');
+    const p = store.profile();
+    if (!p.confirmed) throw new Error('Confirm your profile first');
+    const { useModel } = z.object({ useModel: z.boolean() }).parse(req.body);
+    store.update(a.id, { stage: 'preparing', message: 'Preparing application documents…' });
+    try {
+      const packet = await preparePacket(p, a.job, useModel);
+      await renderPDF(a.id, packet.resumeText);
+      return store.update(a.id, {
+        packet,
+        profileVersion: p.version,
+        profileSnapshot: p,
+        stage: 'needs_user',
+        message: 'Documents are ready. Open the browser to continue.',
+      });
+    } catch (e) {
+      store.update(a.id, { stage: 'needs_user', message: (e as Error).message });
+      throw e;
+    }
+  });
 });
 app.post('/api/applications/:id/packet', async (req: any) => {
-  const a = getApp(req);
-  if (['submitting', 'submitted', 'unknown'].includes(a.stage))
-    throw new Error('Cannot change documents after submission');
-  if (hasSession(a.id)) throw new Error('Close the browser before changing the document');
-  const { resumeText, coverLetter } = z
-    .object({ resumeText: str, coverLetter: str })
-    .parse(req.body);
-  await renderPDF(a.id, resumeText);
-  return store.update(a.id, {
-    packet: {
-      resumeText,
-      coverLetter,
-      selectedFactIds: a.packet?.selectedFactIds || [],
-      model: 'Reviewed by you',
-      coverLetterConfirmed: true,
-      generatedAt: store.now(),
-    },
-    snapshotHash: '',
+  const aid = pid.parse(req.params.id);
+  return withApplicationLock(aid, async () => {
+    const a = getApp(req);
+    if (['submitting', 'submitted', 'unknown'].includes(a.stage))
+      throw new Error('Cannot change documents after submission');
+    if (hasSession(a.id)) throw new Error('Close the browser before changing the document');
+    const { resumeText, coverLetter } = z
+      .object({ resumeText: str, coverLetter: str })
+      .parse(req.body);
+    await renderPDF(a.id, resumeText);
+    return store.update(a.id, {
+      packet: {
+        resumeText,
+        coverLetter,
+        selectedFactIds: a.packet?.selectedFactIds || [],
+        model: 'Reviewed by you',
+        coverLetterConfirmed: true,
+        generatedAt: store.now(),
+      },
+      snapshotHash: '',
+    });
   });
 });
 app.post('/api/applications/:id/resume', async (req: any, reply) => {
@@ -420,52 +427,61 @@ app.post('/api/applications/:id/approve', async (req: any) => {
   return store.application(a.id);
 });
 app.post('/api/applications/:id/close', async (req: any) => {
-  const a = getApp(req);
-  if (a.stage === 'submitting') throw new Error('Submission is in progress');
-  await closeSession(a.id);
-  if (!['submitted', 'unknown', 'skipped'].includes(a.stage))
-    store.update(a.id, {
-      stage: 'needs_user',
-      snapshotHash: '',
-      message: 'Browser closed. Resume when you are ready.',
-    });
-  return { ok: true };
+  const aid = pid.parse(req.params.id);
+  return withApplicationLock(aid, async () => {
+    const a = getApp(req);
+    if (a.stage === 'submitting') throw new Error('Submission is in progress');
+    await closeSession(a.id);
+    if (!['submitted', 'unknown', 'skipped'].includes(a.stage))
+      store.update(a.id, {
+        stage: 'needs_user',
+        snapshotHash: '',
+        message: 'Browser closed. Resume when you are ready.',
+      });
+    return { ok: true };
+  });
 });
 app.post('/api/applications/:id/skip', async (req: any) => {
-  const a = getApp(req);
-  if (['submitted', 'submitting', 'unknown'].includes(a.stage))
-    throw new Error('Cannot skip a submitted or uncertain application');
-  await closeSession(a.id);
-  return store.update(a.id, { stage: 'skipped', message: 'Skipped by you' });
+  const aid = pid.parse(req.params.id);
+  return withApplicationLock(aid, async () => {
+    const a = getApp(req);
+    if (['submitted', 'submitting', 'unknown'].includes(a.stage))
+      throw new Error('Cannot skip a submitted or uncertain application');
+    await closeSession(a.id);
+    return store.update(a.id, { stage: 'skipped', message: 'Skipped by you' });
+  });
 });
 app.post('/api/applications/:id/reconcile', async (req: any) => {
-  const a = getApp(req);
-  if (a.stage !== 'unknown') throw new Error('Only uncertain submissions can be reconciled');
-  const d = z
-    .object({ submitted: z.boolean(), confirmation: z.string().min(5).max(1000) })
-    .parse(req.body);
-  if (d.submitted) {
-    const receipt = {
-      submittedAt: store.now(),
-      url: a.job.url,
-      confirmation: 'Manually confirmed: ' + d.confirmation,
-      fields: a.fields.map((f) => ({ label: f.label, value: f.value })),
-      resumeHash: existsSync(path.join(store.dataDir, 'documents', `${a.id}.pdf`))
-        ? hash(await readFile(path.join(store.dataDir, 'documents', `${a.id}.pdf`)))
-        : '',
-      intentHash: 'manually-reconciled',
-      practice: a.job.practice,
-    };
-    await saveReceipt(a.id, receipt);
-    store.update(a.id, { stage: 'submitted', receipt, message: receipt.confirmation });
-  } else
-    store.update(a.id, {
-      stage: 'needs_user',
-      snapshotHash: '',
-      message: 'You confirmed no submission occurred: ' + d.confirmation,
-    });
-  await closeSession(a.id);
-  return store.application(a.id);
+  const aid = pid.parse(req.params.id);
+  return withApplicationLock(aid, async () => {
+    const a = getApp(req);
+    if (a.stage !== 'unknown') throw new Error('Only uncertain submissions can be reconciled');
+    const d = z
+      .object({ submitted: z.boolean(), confirmation: z.string().min(5).max(1000) })
+      .parse(req.body);
+    if (d.submitted) {
+      const receipt = {
+        submittedAt: store.now(),
+        url: a.job.url,
+        confirmation: 'Manually confirmed: ' + d.confirmation,
+        fields: a.fields.map((f) => ({ label: f.label, value: f.value })),
+        resumeHash: existsSync(path.join(store.dataDir, 'documents', `${a.id}.pdf`))
+          ? hash(await readFile(path.join(store.dataDir, 'documents', `${a.id}.pdf`)))
+          : '',
+        intentHash: 'manually-reconciled',
+        practice: a.job.practice,
+      };
+      await saveReceipt(a.id, receipt);
+      store.update(a.id, { stage: 'submitted', receipt, message: receipt.confirmation });
+    } else
+      store.update(a.id, {
+        stage: 'needs_user',
+        snapshotHash: '',
+        message: 'You confirmed no submission occurred: ' + d.confirmation,
+      });
+    await closeSession(a.id);
+    return store.application(a.id);
+  });
 });
 app.get('/api/applications/:id/:artifact', async (req: any, reply) => {
   const a = getApp(req);

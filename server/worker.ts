@@ -21,7 +21,16 @@ import { renderPDF, hash, fileHash, saveReceipt } from './documents.ts';
 import { preparePacket } from './llm.ts';
 const sessions = new Map<string, { context: BrowserContext; page: Page }>();
 let busy = false;
-const submissionLocks = new Set<string>();
+const applicationLocks = new Set<string>();
+export async function withApplicationLock<T>(aid: string, operation: () => Promise<T>): Promise<T> {
+  if (applicationLocks.has(aid)) throw new Error('Another application operation is already running');
+  applicationLocks.add(aid);
+  try {
+    return await operation();
+  } finally {
+    applicationLocks.delete(aid);
+  }
+}
 const browserOptions = () => ({
   headless: settings().headless || process.env.APPLY_JOBS_HEADLESS === '1',
   ...(process.env.APPLY_JOBS_CHROME ? { executablePath: process.env.APPLY_JOBS_CHROME } : {}),
@@ -280,6 +289,9 @@ async function finalButton(page: Page) {
   return findButton(page, 'submit');
 }
 export async function processApplication(aid: string) {
+  return withApplicationLock(aid, () => processApplicationLocked(aid));
+}
+async function processApplicationLocked(aid: string) {
   checkRunning();
   let a = application(aid)!;
   const p = profile();
@@ -414,7 +426,7 @@ export async function processApplication(aid: string) {
           fields.every((f) => !f.required || f.resolved) &&
           !fields.some((f) => f.source === 'Browser value')
         )
-          await submitApplication(aid, snapshotHash);
+          await submitApplicationLocked(aid, snapshotHash);
         return;
       }
       const next = await findButton(page, 'next');
@@ -445,13 +457,7 @@ export async function processApplication(aid: string) {
   }
 }
 export async function submitApplication(aid: string, approvedHash: string) {
-  if (submissionLocks.has(aid)) throw new Error('Submission is already in progress');
-  submissionLocks.add(aid);
-  try {
-    return await submitApplicationLocked(aid, approvedHash);
-  } finally {
-    submissionLocks.delete(aid);
-  }
+  return withApplicationLock(aid, () => submitApplicationLocked(aid, approvedHash));
 }
 async function submitApplicationLocked(aid: string, approvedHash: string) {
   checkRunning();
@@ -541,6 +547,9 @@ export async function applyAnswers(
   aid: string,
   answers: { id: string; value: string; save: boolean }[],
 ) {
+  return withApplicationLock(aid, () => applyAnswersLocked(aid, answers));
+}
+async function applyAnswersLocked(aid: string, answers: { id: string; value: string; save: boolean }[]) {
   const a = application(aid);
   const s = sessions.get(aid);
   if (!a || !s) throw new Error('Resume the browser session before editing answers');
