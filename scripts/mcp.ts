@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 const base = process.env.APPLY_JOBS_URL || 'http://127.0.0.1:4318';
-const server = new McpServer({ name: 'apply-jobs', version: '0.1.0' });
+const server = new McpServer({ name: 'apply-jobs', version: '0.2.0' });
 async function request(route: string, body?: unknown) {
   const r = await fetch(base + '/api' + route, {
     method: body === undefined ? 'GET' : 'POST',
@@ -21,9 +21,43 @@ server.registerTool(
   'list_jobs',
   {
     description: 'List locally saved opportunities. Does not submit applications.',
+    inputSchema: {
+      query: z.string().max(300).optional(),
+      page: z.number().int().min(1).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+      matching: z.boolean().optional(),
+    },
+  },
+  async ({ query, page, limit, matching }) =>
+    output(
+      await request(
+        '/jobs/search?' +
+          new URLSearchParams({
+            q: query || '',
+            page: String(page || 1),
+            limit: String(limit || 24),
+            matching: String(matching ?? true),
+          }),
+      ),
+    ),
+);
+server.registerTool(
+  'fetch_latest_jobs',
+  {
+    description:
+      'Refresh enabled job sources, respecting provider limits. Returns progress; no applications are sent.',
     inputSchema: {},
   },
-  async () => output((await request('/state')).jobs),
+  async () => output(await request('/discovery/start', {})),
+);
+server.registerTool(
+  'discovery_status',
+  {
+    description: 'Read discovery progress and connected source health.',
+    inputSchema: {},
+  },
+  async () =>
+    output({ run: await request('/discovery/status'), sources: (await request('/state')).sources }),
 );
 server.registerTool(
   'import_job',
