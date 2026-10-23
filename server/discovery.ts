@@ -128,11 +128,14 @@ const iso = (v: unknown) => {
   const d = new Date(typeof v === 'number' ? v * 1000 : String(v));
   return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
 };
-const jobType = (v: unknown) =>
-  String(v || '')
-    .toLowerCase()
-    .replace(/[_\s-]/g, '')
-    .replace('permanent', 'fulltime');
+const jobType = (v: unknown) => {
+  const label = String(v || '').trim().toLowerCase();
+  if (/\b(?:intern(?:ship)?|apprentice(?:ship)?)\b/.test(label)) return 'internship';
+  if (/\bpart[\s_-]*time\b/.test(label)) return 'parttime';
+  if (/\b(?:full[\s_-]*time|permanent)\b/.test(label)) return 'fulltime';
+  if (/\b(?:contract|freelance|temporary|fixed[\s_-]*term)\b/.test(label)) return 'contract';
+  return label.replace(/[_\s-]/g, '');
+};
 export function level(title: string) {
   if (/\b(?:intern(?:ship)?|apprentice(?:ship)?)\b/i.test(title)) return 'intern';
   if (/\bjunior\b|\bjr\b|entry[ .-]?level|\bgraduate\b/i.test(title)) return 'junior';
