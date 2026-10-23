@@ -36,6 +36,8 @@ export function canonical(url: string) {
   u.pathname = u.pathname.replace(/\/+$/, '');
   // Posting and application URLs identify the same opportunity on these ATSes.
   const ats = detectATS(u.href);
+  if (ats === 'greenhouse' && /^\/[^/]+\/jobs\/[^/]+\/apply$/.test(u.pathname))
+    u.pathname = u.pathname.replace(/\/apply$/, '');
   if (ats === 'lever' && /^\/[^/]+\/[^/]+\/apply$/.test(u.pathname))
     u.pathname = u.pathname.replace(/\/apply$/, '');
   if (ats === 'ashby' && /^\/[^/]+\/[^/]+\/application$/.test(u.pathname))
