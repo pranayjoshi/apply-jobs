@@ -22,6 +22,7 @@ export function setSecrets(values: Record<string, string>) {
   const data = read();
   for (const [name, value] of Object.entries(values)) {
     if (value === '__DELETE__') delete data[name];
+    else if (name === 'imapPassword' && value.length) data[name] = value;
     else if (value.trim()) data[name] = value.trim();
   }
   const iv = randomBytes(12),
