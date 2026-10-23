@@ -68,7 +68,10 @@ export async function publicFetch(
   let requestMethod = options.method || 'GET';
   let requestHeaders = { ...options.headers };
   let requestBody = options.body;
-  const carriesCustomRequestData = !!options.headers || options.body !== undefined;
+  const carriesCustomRequestData =
+    !!options.headers ||
+    options.body !== undefined ||
+    !['GET', 'HEAD'].includes(requestMethod.toUpperCase());
   for (let i = 0; i < 6; i++) {
     const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '');
     const lookupPinned = (
@@ -122,7 +125,7 @@ export async function publicFetch(
         if (!l) throw new Error('Invalid redirect');
         const next = await validatedURL(new URL(l, u).href);
         if (carriesCustomRequestData && next.url.origin !== u.origin)
-          throw new Error('Requests with headers or a body cannot redirect to another origin');
+          throw new Error('Requests with custom methods, headers or a body cannot change origin');
         const method = requestMethod.toUpperCase();
         if (
           (r.status === 303 && method !== 'HEAD') ||
