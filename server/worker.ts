@@ -341,6 +341,8 @@ async function processApplicationLocked(aid: string) {
       message: 'Opening the application and matching your confirmed answers…',
       attempts: a.attempts + 1,
     });
+    if (!a.job.practice && new URL(a.job.url).protocol !== 'https:')
+      throw new Error('Use the employer’s HTTPS job URL before filling your personal information.');
     const { page } = await openSession(a);
     if (adapterFor(page.url()).mode === 'capture') {
       if (!(await enterApplication(page))) {
