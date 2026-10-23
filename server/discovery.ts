@@ -621,7 +621,7 @@ export function matches(j: Job, s: Settings) {
     )
   )
     return false;
-  if (s.remoteOnly && !j.remote) return false;
+  if (s.remoteOnly && !j.remote && !includesTerm(j.location, 'remote')) return false;
   if (
     s.employmentTypes?.length &&
     (!j.employmentType || !s.employmentTypes.includes(j.employmentType))
