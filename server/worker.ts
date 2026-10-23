@@ -96,7 +96,7 @@ export async function inspectFormFrame(
         ),
       );
       const fields: any[] = [];
-      const radioDone = new Set<string>();
+      const radioDone: { form: HTMLFormElement | null; name: string }[] = [];
       for (const [i, el] of elements.entries()) {
         const type = el.getAttribute('type') || el.tagName.toLowerCase();
         if (['hidden', 'submit', 'button', 'reset', 'image'].includes(type) || el.disabled)
@@ -134,16 +134,29 @@ export async function inspectFormFrame(
         let options: string[] = [];
         let group: HTMLInputElement[] = [];
         if (type === 'radio') {
-          const name = el.getAttribute('name') || el.id;
-          if (radioDone.has(name)) continue;
-          radioDone.add(name);
-          group = elements.filter(
-            (x) => x.getAttribute('type') === 'radio' && x.getAttribute('name') === name,
-          ) as HTMLInputElement[];
+          const name = el.getAttribute('name') || '';
+          if (name) {
+            if (radioDone.some((seen) => seen.form === input.form && seen.name === name)) continue;
+            radioDone.push({ form: input.form, name });
+            group = elements.filter(
+              (x) => {
+                const radio = x as HTMLInputElement;
+                return (
+                  radio.getAttribute('type') === 'radio' &&
+                  radio.getAttribute('name') === name &&
+                  radio.form === input.form &&
+                  !radio.disabled &&
+                  !!radio.getClientRects().length
+                );
+              },
+            ) as HTMLInputElement[];
+          } else group = [input];
           label =
             el.closest('fieldset')?.querySelector('legend')?.textContent ||
             el.closest('[role="radiogroup"]')?.getAttribute('aria-label') ||
-            name;
+            name ||
+            input.id ||
+            `Field ${i + 1}`;
           options = group.map((x) => x.labels?.[0]?.innerText?.trim() || x.value);
         } else if (el.tagName === 'SELECT')
           options = Array.from((el as HTMLSelectElement).options)
