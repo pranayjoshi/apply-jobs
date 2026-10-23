@@ -37,9 +37,10 @@ try {
   else if (command === 'discover') value = await request('/discovery/start', {});
   else if (command === 'applications') value = (await request('/state')).applications;
   else if (command === 'add' && args[0]) value = await request('/jobs/import', { url: args[0] });
-  else if (command === 'apply' && args[0]) value = await request(`/jobs/${args[0]}/apply`, {});
+  else if (command === 'apply' && args[0])
+    value = await request(`/jobs/${encodeURIComponent(args[0])}/apply`, {});
   else if (command === 'resume' && args[0])
-    value = await request(`/applications/${args[0]}/resume`, {});
+    value = await request(`/applications/${encodeURIComponent(args[0])}/resume`, {});
   else if (command === 'pause' || command === 'unpause')
     value = await request('/pause', { paused: command === 'pause' });
   else if (command === 'export') {
