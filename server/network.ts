@@ -1,7 +1,7 @@
 import { lookup } from 'node:dns/promises';
 import type { LookupAddress, LookupOptions } from 'node:dns';
 import { BlockList, isIP } from 'node:net';
-import { Agent } from 'undici';
+import { Agent, fetch as undiciFetch } from 'undici';
 const nonPublicIPv4 = new BlockList();
 for (const [address, prefix] of [
   ['0.0.0.0', 8],
@@ -99,7 +99,7 @@ export async function publicFetch(
     };
     const dispatcher = new Agent({ connect: { lookup: lookupPinned } });
     try {
-      const r = await fetch(u, {
+      const r = await undiciFetch(u, {
         ...options,
         dispatcher,
         redirect: 'manual',
