@@ -18,6 +18,27 @@ export function inboxState(): InboxState {
     syncing: running,
   };
 }
+function saveInbox(state: InboxState) {
+  const latest = store.getKV<InboxState>('inbox', {
+    messages: [],
+    lastSync: '',
+    error: '',
+    syncing: false,
+  });
+  const latestMessages = new Map(latest.messages.map((message) => [message.id, message]));
+  state.messages = state.messages.map((message) => {
+    const current = latestMessages.get(message.id);
+    if (!current) return message;
+    return {
+      ...message,
+      ...(current.applicationId
+        ? { applicationId: current.applicationId, matchReason: current.matchReason }
+        : {}),
+      ...(current.replyDraft !== undefined ? { replyDraft: current.replyDraft } : {}),
+    };
+  });
+  store.setKV('inbox', state);
+}
 export function classifyMail(subject: string, body: string): InboxItem['category'] {
   const text = (subject + ' ' + body).toLowerCase();
   if (
@@ -169,14 +190,14 @@ export async function syncInbox() {
         .slice(0, 500);
       state.lastSync = store.now();
       state.error = '';
-      store.setKV('inbox', state);
+      saveInbox(state);
       return { added, ...inboxState() };
     } finally {
       lock.release();
     }
   } catch (e) {
     state.error = redact((e as Error).message);
-    store.setKV('inbox', state);
+    saveInbox(state);
     throw new Error(state.error);
   } finally {
     await client.logout().catch(() => {});
