@@ -15,7 +15,7 @@ import type { Application, Field, Receipt } from '../src/types.ts';
 import { eligible } from './jobs.ts';
 import { matches, checkActive } from './discovery.ts';
 import { adapterFor, findButton, enterApplication, adapters } from './adapters.ts';
-import { answerField } from './answers.ts';
+import { answerField, normalize } from './answers.ts';
 import { publicURL } from './network.ts';
 import { renderPDF, hash, fileHash, saveReceipt } from './documents.ts';
 import { preparePacket } from './llm.ts';
@@ -597,7 +597,7 @@ async function applyAnswersLocked(aid: string, answers: { id: string; value: str
     f.resolved = !!item.value || !f.required;
     f.source = 'Your answer';
     if (item.save) {
-      p.answers = p.answers.filter((x) => x.question !== f.label);
+      p.answers = p.answers.filter((x) => normalize(x.question) !== normalize(f.label));
       p.answers.push({ question: f.label, answer: item.value });
     }
   }
