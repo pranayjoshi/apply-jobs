@@ -114,7 +114,12 @@ export function applications(): Application[] {
     .map((a) => ({ ...a, job: job(a.jobId)! }));
 }
 export function application(aid: string): Application | undefined {
-  return applications().find((a) => a.id === aid);
+  const row = db.prepare('SELECT data FROM applications WHERE id=?').get(aid) as
+    | { data: string }
+    | undefined;
+  if (!row) return undefined;
+  const application = JSON.parse(row.data) as Application;
+  return { ...application, job: job(application.jobId)! };
 }
 export function saveApplication(a: Application) {
   a.updatedAt = now();
