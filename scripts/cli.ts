@@ -8,8 +8,8 @@ async function request(route: string, body?: unknown) {
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(180000),
   });
-  const d = (await r.json()) as any;
-  if (!r.ok) throw new Error(d.error);
+  const d = (await r.json().catch(() => ({}))) as any;
+  if (!r.ok) throw new Error(d.error || `Service returned HTTP ${r.status}`);
   return d;
 }
 try {
