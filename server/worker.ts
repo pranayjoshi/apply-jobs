@@ -171,6 +171,9 @@ export async function inspectFormFrame(
           type,
           required:
             /\*/.test(label) ||
+            (type === 'radio' &&
+              (group.some((option) => option.required) ||
+                el.closest('[role="radiogroup"]')?.getAttribute('aria-required') === 'true')) ||
             el.hasAttribute('required') ||
             el.getAttribute('aria-required') === 'true' ||
             !!el.closest('fieldset')?.hasAttribute('required'),
