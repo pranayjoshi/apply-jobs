@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { chmod, writeFile } from 'node:fs/promises';
 const [command = 'help', ...args] = process.argv.slice(2);
 const base = process.env.APPLY_JOBS_URL || 'http://127.0.0.1:4318';
 async function request(route: string, body?: unknown) {
@@ -43,6 +43,7 @@ try {
     value = await request('/export');
     if (args[0]) {
       await writeFile(args[0], JSON.stringify(value, null, 2), { mode: 0o600 });
+      if (process.platform !== 'win32') await chmod(args[0], 0o600);
       console.log(`Export saved to ${args[0]}`);
       process.exit(0);
     }
