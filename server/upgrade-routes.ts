@@ -22,6 +22,13 @@ import { setSecrets, secretStatus } from './secrets.ts';
 import * as store from './store.ts';
 import { syncInbox, inboxState } from './inbox.ts';
 export const directory = [
+  { name: 'Workable', ats: 'workable', board: 'careers', category: 'Software & operations' },
+  {
+    name: 'SmartRecruiters',
+    ats: 'smartrecruiters',
+    board: 'smartrecruiters',
+    category: 'Recruiting technology',
+  },
   { name: 'Figma', ats: 'greenhouse', board: 'figma', category: 'Design & engineering' },
   { name: 'Linear', ats: 'ashby', board: 'linear', category: 'Product & engineering' },
   { name: 'OpenAI', ats: 'ashby', board: 'openai', category: 'AI & operations' },
