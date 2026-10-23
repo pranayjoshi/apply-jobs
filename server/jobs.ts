@@ -2,6 +2,13 @@ import * as cheerio from 'cheerio';
 import type { Job, Settings, Profile, WatchSource } from '../src/types.ts';
 import { publicFetch } from './network.ts';
 import { id, now, putJob, saveSource, event, profile, settings } from './store.ts';
+export function includesTerm(text: string, term: string) {
+  if (!term) return false;
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}(?=$|[^\\p{L}\\p{N}])`, 'u').test(
+    text.toLowerCase(),
+  );
+}
 export function detectATS(url: string) {
   const h = new URL(url).hostname;
   if (
@@ -50,7 +57,7 @@ export function rank(
     .map((x) => x.trim())
     .filter(Boolean);
   const text = (j.title + ' ' + j.description).toLowerCase();
-  const matches = tokens.filter((t) => text.includes(t));
+  const matches = tokens.filter((t) => includesTerm(text, t));
   const roles = s.roles
     .toLowerCase()
     .split(/[,\n]/)
@@ -70,7 +77,7 @@ export function rank(
   let score = tokens.length ? Math.round(35 + (45 * matches.length) / tokens.length) : 40;
   if (matches.length) reasons.push(`Matches ${matches.slice(0, 4).join(', ')}`);
   if (roles.length) {
-    if (roles.some((r) => j.title.toLowerCase().includes(r))) {
+    if (roles.some((r) => includesTerm(j.title, r))) {
       score += 15;
       reasons.push('Matches your target role');
     } else {
@@ -79,7 +86,7 @@ export function rank(
     }
   }
   if (locations.length) {
-    if (locations.some((l) => (j.location + ' ' + j.description).toLowerCase().includes(l))) {
+    if (locations.some((l) => includesTerm(j.location + ' ' + j.description, l))) {
       score += 10;
       reasons.push('Matches a preferred location');
     } else {
@@ -87,7 +94,7 @@ export function rank(
       reasons.push('Preferred location not found');
     }
   }
-  if (excluded.some((c) => j.company.toLowerCase().includes(c))) {
+  if (excluded.some((c) => includesTerm(j.company, c))) {
     score = 0;
     reasons.push('Excluded employer');
   }
@@ -161,13 +168,13 @@ export function eligible(j: Job, s: Settings) {
       .split(/[,\n]/)
       .map((x) => x.trim())
       .filter(Boolean);
-  if (parts(s.excludedCompanies).some((x) => j.company.toLowerCase().includes(x))) return false;
+  if (parts(s.excludedCompanies).some((x) => includesTerm(j.company, x))) return false;
   const roles = parts(s.roles);
-  if (roles.length && !roles.some((x) => j.title.toLowerCase().includes(x))) return false;
+  if (roles.length && !roles.some((x) => includesTerm(j.title, x))) return false;
   const locations = parts(s.locations);
   if (
     locations.length &&
-    !locations.some((x) => (j.location + ' ' + j.description).toLowerCase().includes(x))
+    !locations.some((x) => includesTerm(j.location + ' ' + j.description, x))
   )
     return false;
   return true;

@@ -3,7 +3,7 @@ import type { Job, WatchSource, SourceCatalogItem, DiscoveryRun, Settings } from
 import { publicFetch, publicURL } from './network.ts';
 import { secret, redact } from './secrets.ts';
 import * as store from './store.ts';
-import { canonical, detectATS, rank } from './jobs.ts';
+import { canonical, detectATS, includesTerm, rank } from './jobs.ts';
 export const catalog: SourceCatalogItem[] = [
   {
     kind: 'greenhouse',
@@ -608,15 +608,15 @@ export function matches(j: Job, s: Settings) {
       .split(/[,\n]/)
       .map((x) => x.trim())
       .filter(Boolean);
-  if (parts(s.excludedCompanies).some((x) => j.company.toLowerCase().includes(x))) return false;
+  if (parts(s.excludedCompanies).some((x) => includesTerm(j.company, x))) return false;
   const roles = parts(s.roles);
-  if (roles.length && !roles.some((x) => j.title.toLowerCase().includes(x))) return false;
+  if (roles.length && !roles.some((x) => includesTerm(j.title, x))) return false;
   const locations = parts(s.locations);
   if (
     locations.length &&
     !locations.some(
       (x) =>
-        (j.location + ' ' + j.description).toLowerCase().includes(x) ||
+        includesTerm(j.location + ' ' + j.description, x) ||
         (x === 'remote' && j.remote),
     )
   )
