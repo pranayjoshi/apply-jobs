@@ -796,7 +796,8 @@ export async function checkActive(j: Job) {
         const scan = (value: any) => {
           if (Array.isArray(value)) value.forEach(scan);
           else if (value && typeof value === 'object') {
-            if (value['@type'] === 'JobPosting') {
+            const types = Array.isArray(value['@type']) ? value['@type'] : [value['@type']];
+            if (types.includes('JobPosting')) {
               hasJobMetadata = true;
               if (value.validThrough && Date.parse(value.validThrough) < Date.now())
                 declaredExpiry = true;
