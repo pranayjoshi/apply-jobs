@@ -111,6 +111,7 @@ export async function syncInbox() {
       const ids = Array.isArray(found) ? found.slice(-100) : [];
       let added = 0;
       if (ids.length) {
+        const applications = store.applications();
         const messages = await client.fetchAll(
           ids.join(','),
           { envelope: true, source: { start: 0, maxLength: 60000 } },
@@ -134,7 +135,7 @@ export async function syncInbox() {
           });
           const subject = parsed.subject || '(No subject)',
             body = (parsed.text || '').slice(0, 20000),
-            match = matchMail(subject, body, store.applications());
+            match = matchMail(subject, body, applications);
           const item: InboxItem = {
             id: key,
             applicationId: match?.applicationId,
