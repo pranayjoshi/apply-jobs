@@ -2,7 +2,9 @@ import type { Profile, Field } from '../src/types.ts';
 export function normalize(s: string) {
   return s
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 }
 export function answerField(
