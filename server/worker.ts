@@ -21,6 +21,7 @@ import { renderPDF, hash, fileHash, saveReceipt } from './documents.ts';
 import { preparePacket } from './llm.ts';
 const sessions = new Map<string, { context: BrowserContext; page: Page }>();
 let busy = false;
+const submissionLocks = new Set<string>();
 const browserOptions = () => ({
   headless: settings().headless || process.env.APPLY_JOBS_HEADLESS === '1',
   ...(process.env.APPLY_JOBS_CHROME ? { executablePath: process.env.APPLY_JOBS_CHROME } : {}),
@@ -444,6 +445,15 @@ export async function processApplication(aid: string) {
   }
 }
 export async function submitApplication(aid: string, approvedHash: string) {
+  if (submissionLocks.has(aid)) throw new Error('Submission is already in progress');
+  submissionLocks.add(aid);
+  try {
+    return await submitApplicationLocked(aid, approvedHash);
+  } finally {
+    submissionLocks.delete(aid);
+  }
+}
+async function submitApplicationLocked(aid: string, approvedHash: string) {
   checkRunning();
   const a = application(aid);
   if (!a || a.stage !== 'review') throw new Error('This application is not ready for submission');
