@@ -227,7 +227,10 @@ export async function fillFormField(page: Page, f: Field, value: string, aid: st
     return;
   }
   if (f.type === 'checkbox') {
-    await loc.setChecked(/^(yes|true|checked|on)$/i.test(value));
+    const answer = value.trim().toLowerCase();
+    if (/^(yes|true|checked|on|1)$/.test(answer)) await loc.setChecked(true);
+    else if (/^(no|false|unchecked|off|0)$/.test(answer)) await loc.setChecked(false);
+    else throw new Error('Confirm this checkbox in the browser');
     return;
   }
   if (f.type === 'select') {
