@@ -478,6 +478,8 @@ async function submitApplicationLocked(aid: string, approvedHash: string) {
   const button = await finalButton(session.page);
   if (!button) throw new Error('Submit button not found. Continue in the browser.');
   const beforeText = await session.page.locator('body').innerText();
+  if (a.profileVersion !== profile().version)
+    throw new Error('Your profile changed during review. Resume and review the application again.');
   const intentHash = hash(
     JSON.stringify({ aid, approvedHash, profileVersion: a.profileVersion, at: now() }),
   );
