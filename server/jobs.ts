@@ -104,6 +104,7 @@ export function rank(
 export async function importURL(url: string, overrides: Partial<Job> = {}) {
   const response = await publicFetch(url);
   const $ = cheerio.load(response.text);
+  const metadataText = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
   let data: any = {};
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
@@ -119,24 +120,28 @@ export async function importURL(url: string, overrides: Partial<Job> = {}) {
     } catch {}
   });
   $('script,style,nav,footer,header,noscript').remove();
-  const desc = cheerio.load(data.description || '').text() || $('main').text() || $('body').text();
+  const desc =
+    cheerio.load(metadataText(data.description)).text() || $('main').text() || $('body').text();
+  const title =
+    metadataText(data.title) ||
+    $('h1').first().text().trim() ||
+    $('title').text().split('|')[0].trim() ||
+    'Untitled role';
+  const company =
+    metadataText(data.hiringOrganization?.name) ||
+    $('meta[property="og:site_name"]').attr('content')?.trim() ||
+    new URL(response.url).hostname;
+  const location =
+    data.jobLocationType === 'TELECOMMUTE'
+      ? 'Remote'
+      : metadataText(data.jobLocation?.address?.addressLocality);
   const j: Job = {
     id: id(),
     url: response.url,
     canonicalKey: canonical(response.url),
-    title:
-      data.title ||
-      $('h1').first().text().trim() ||
-      $('title').text().split('|')[0].trim() ||
-      'Untitled role',
-    company:
-      data.hiringOrganization?.name ||
-      $('meta[property="og:site_name"]').attr('content') ||
-      new URL(url).hostname,
-    location:
-      data.jobLocationType === 'TELECOMMUTE'
-        ? 'Remote'
-        : data.jobLocation?.address?.addressLocality || '',
+    title: title.slice(0, 500),
+    company: company.slice(0, 300),
+    location: location.slice(0, 500),
     description: desc.replace(/\s+/g, ' ').trim().slice(0, 30000),
     ats: detectATS(response.url),
     source: 'Pasted URL',
