@@ -1,4 +1,4 @@
-import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomInt, createHash, timingSafeEqual } from 'node:crypto';
 import { secret, setSecrets } from './secrets.ts';
 import { getKV, setKV, id, now, putJob, profile, settings } from './store.ts';
 import { publicURL } from './network.ts';
@@ -7,7 +7,7 @@ import type { Job } from '../src/types.ts';
 const digest = (v: string) => createHash('sha256').update(v).digest();
 export const extensionOrigin = (origin: string) => /^chrome-extension:\/\/[a-p]{32}$/.test(origin);
 export function makePairCode() {
-  const code = String(randomBytes(4).readUInt32BE() % 1000000).padStart(6, '0');
+  const code = String(randomInt(1_000_000)).padStart(6, '0');
   setKV('extensionPair', {
     hash: digest(code).toString('hex'),
     expiresAt: Date.now() + 300000,
