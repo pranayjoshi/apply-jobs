@@ -1,22 +1,40 @@
 import { lookup } from 'node:dns/promises';
 import type { LookupAddress, LookupOptions } from 'node:dns';
-import { isIP } from 'node:net';
+import { BlockList, isIP } from 'node:net';
 import { Agent } from 'undici';
+const nonPublicIPv4 = new BlockList();
+for (const [address, prefix] of [
+  ['0.0.0.0', 8],
+  ['10.0.0.0', 8],
+  ['100.64.0.0', 10],
+  ['127.0.0.0', 8],
+  ['169.254.0.0', 16],
+  ['172.16.0.0', 12],
+  ['192.0.0.0', 24],
+  ['192.0.2.0', 24],
+  ['192.88.99.0', 24],
+  ['192.168.0.0', 16],
+  ['198.18.0.0', 15],
+  ['198.51.100.0', 24],
+  ['203.0.113.0', 24],
+  ['224.0.0.0', 4],
+  ['240.0.0.0', 4],
+] as const)
+  nonPublicIPv4.addSubnet(address, prefix, 'ipv4');
+const nonPublicIPv6 = new BlockList();
+for (const [address, prefix] of [
+  ['2001::', 23],
+  ['2001:db8::', 32],
+  ['2002::', 16],
+  ['3fff::', 20],
+] as const)
+  nonPublicIPv6.addSubnet(address, prefix, 'ipv6');
 export function privateIP(ip: string): boolean {
-  if (ip.includes(':'))
-    return !/^[23][0-9a-f]{3}:/i.test(ip) || ip.toLowerCase().startsWith('2001:db8:');
-  const [a, b] = ip.split('.').map(Number);
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    a >= 224 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 198 && (b === 18 || b === 19))
-  );
+  const family = isIP(ip);
+  if (family === 4) return nonPublicIPv4.check(ip, 'ipv4');
+  if (family === 6)
+    return !/^[23][0-9a-f]{3}:/i.test(ip) || nonPublicIPv6.check(ip, 'ipv6');
+  return true;
 }
 async function validatedURL(input: string): Promise<{ url: URL; addresses: LookupAddress[] }> {
   const u = new URL(input);
