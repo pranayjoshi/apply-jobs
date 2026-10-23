@@ -6,6 +6,7 @@ async function request(route: string, body?: unknown) {
     method: body === undefined ? 'GET' : 'POST',
     headers: { 'X-Apply-Jobs': 'local', 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(180000),
   });
   const d = (await r.json()) as any;
   if (!r.ok) throw new Error(d.error);
