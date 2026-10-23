@@ -65,6 +65,10 @@ export async function publicFetch(
   options: { method?: string; headers?: Record<string, string>; body?: string } = {},
 ): Promise<{ text: string; url: string }> {
   let { url: u, addresses } = await validatedURL(input);
+  let requestMethod = options.method || 'GET';
+  let requestHeaders = { ...options.headers };
+  let requestBody = options.body;
+  const carriesCustomRequestData = !!options.headers || options.body !== undefined;
   for (let i = 0; i < 6; i++) {
     const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '');
     const lookupPinned = (
@@ -101,22 +105,40 @@ export async function publicFetch(
     try {
       const r = await undiciFetch(u, {
         ...options,
-        dispatcher,
-        redirect: 'manual',
-        signal: AbortSignal.timeout(20_000),
+        method: requestMethod,
         headers: {
           'User-Agent': 'ApplyJobs/0.1 (personal career assistant)',
           Accept: 'application/json,text/html',
-          ...options.headers,
+          ...requestHeaders,
         },
+        body: requestBody,
+        dispatcher,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(20_000),
       });
       if ([301, 302, 303, 307, 308].includes(r.status)) {
         const l = r.headers.get('location');
         await r.body?.cancel();
         if (!l) throw new Error('Invalid redirect');
         const next = await validatedURL(new URL(l, u).href);
-        if ((options.headers || options.body) && next.url.origin !== u.origin)
+        if (carriesCustomRequestData && next.url.origin !== u.origin)
           throw new Error('Requests with headers or a body cannot redirect to another origin');
+        const method = requestMethod.toUpperCase();
+        if (
+          (r.status === 303 && method !== 'HEAD') ||
+          ([301, 302].includes(r.status) && method === 'POST')
+        ) {
+          requestMethod = 'GET';
+          requestBody = undefined;
+          requestHeaders = Object.fromEntries(
+            Object.entries(requestHeaders).filter(
+              ([name]) =>
+                !/^(?:content-(?:encoding|language|location|type|length)|transfer-encoding)$/i.test(
+                  name,
+                ),
+            ),
+          );
+        }
         u = next.url;
         addresses = next.addresses;
         continue;
