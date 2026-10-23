@@ -611,7 +611,11 @@ export function matches(j: Job, s: Settings) {
   const locations = parts(s.locations);
   if (
     locations.length &&
-    !locations.some((x) => j.location.toLowerCase().includes(x) || (x === 'remote' && j.remote))
+    !locations.some(
+      (x) =>
+        (j.location + ' ' + j.description).toLowerCase().includes(x) ||
+        (x === 'remote' && j.remote),
+    )
   )
     return false;
   if (s.remoteOnly && !j.remote) return false;
