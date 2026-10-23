@@ -76,7 +76,6 @@ export async function syncInbox() {
   if (!secret('imapHost') || !secret('imapUser') || !secret('imapPassword'))
     throw new Error('Connect a TLS IMAP account in Integrations first');
   const host = secret('imapHost');
-  await publicURL(`https://${host}`);
   const port = Number(secret('imapPort') || 993);
   if (port !== 993) throw new Error('Use TLS IMAP on port 993');
   running = true;
@@ -92,6 +91,7 @@ export async function syncInbox() {
     disableAutoIdle: true,
   });
   try {
+    await publicURL(`https://${host}`);
     await client.connect();
     const lock = await client.getMailboxLock('INBOX', { readOnly: true });
     try {
