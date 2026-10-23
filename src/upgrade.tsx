@@ -1131,6 +1131,7 @@ export function JobExplorer({
               <input
                 aria-label="Search roles or companies"
                 placeholder="Search roles, skills, or companies…"
+                maxLength={300}
                 value={q}
                 onChange={(e) => {
                   setQ(e.target.value);
