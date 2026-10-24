@@ -41,7 +41,7 @@ Profile extraction and generated answers need your review. Do not use invented s
 
 The wizard checks inference, not merely a successful model-list request. Hardware recommendations are estimates. The macOS/Linux installer downloads an official Ollama release, verifies its published SHA-256 digest, and installs inside the private workspace. Windows uses manual vendor installation. Apply Jobs starts/stops only the local Ollama process it owns and does not replace a pre-existing service.
 
-On this workspace, the project-local Ollama runtime and `qwen3:4b` are installed. Model tasks are serialized. Résumé tailoring selects existing facts and preserves their wording. Cover letters and proposed question answers are reviewable drafts. Selecting a remote endpoint sends the relevant candidate text to that provider; there is no automatic cloud fallback. Free local weights retain their own licenses; API usage may cost money.
+On this workspace, the project-local Ollama runtime and `qwen3:4b` are installed. Model tasks are serialized. My profile offers three résumé modes: Original, Tailored (restrained factual edits), and Strongest match (more extensive relevant wording). Original uploads preserve the original PDF bytes; generated versions use a Jake’s Resume-style serif layout. Tailored modes cite existing fact IDs, protect identity/education/metrics, check proposed wording against the background, and expose before/after edits. Review mode includes these documents in final approval; Autopilot follows the saved strategy. AI grounding checks reduce unsupported edits but do not replace your review. Cover letters and proposed question answers are reviewable drafts. Selecting a remote endpoint sends the relevant candidate text to that provider; there is no automatic cloud fallback. Free local weights retain their own licenses; API usage may cost money.
 
 ## Discovery coverage
 
@@ -75,7 +75,7 @@ Start with **Discover → Practice**. This controlled form exercises document up
 
 For a real role, confirm your profile, queue the job, and open the application. Five named browser strategies cover Greenhouse, Lever, Ashby, SmartRecruiters, and Workable. They handle accessible fields, standard/custom selection controls, radio groups, résumé uploads, conditional steps, and employer handoffs where recognizable. Workday and generic sites use assisted mode. LinkedIn/Indeed capture routes require employer handoff or manual steps.
 
-Review the generated résumé, fact differences, cover letter, and answers. A model can propose text answers grounded in profile fact IDs; save them only after review. Confirm the cover letter before its upload. Unknown questions, login, MFA, CAPTCHA, unsupported widgets, and ambiguous steps pause for you. Use the dedicated browser to finish the step, then Resume & validate.
+Review the generated résumé, fact differences, any cover letter, and answers. The final-submit action appears at the top when the form is ready. Missing profile confirmation is reported before a browser operation starts. Applying answer changes automatically resumes validation. Completed multistep fields remain available in the application and receipt. A model can propose text answers grounded in profile fact IDs; save them only after review. Confirm the cover letter before its upload. Unknown questions, login, MFA, CAPTCHA, unsupported widgets, and ambiguous steps pause for you. Use the dedicated browser to finish the step, then Resume & validate.
 
 These strategies are implemented and checked on controlled browser forms. Live submission compatibility has not been certified for every employer tenant. Employer customization can require manual work. No CAPTCHA bypass, stealth service, or employer private API is included.
 
@@ -138,3 +138,7 @@ npm run verify:workflow
 The focused checks cover policy/identity, filters and freshness, encrypted secrets, pairing/origins, mail matching, browser fields, model connection/pull, pagination, document upload, review hashes, receipts, and restart recovery. Controlled checks use separate temporary workspaces and send no employer applications. See [docs/verification.md](docs/verification.md) for live-feed evidence, real local-model checks, and remaining account/platform validation.
 
 React/TypeScript UI is in `src/`, service/browser code in `server/`, and CLI/MCP/verification in `scripts/`. See [docs/architecture.md](docs/architecture.md). Native mobile clients, hosted multi-user deployment, sending recruiter emails, and universal employer-form compatibility are outside this release.
+
+## Résumé layout reference
+
+The generated PDF layout is an independent HTML/CSS implementation inspired by [Jake Gutierrez’s MIT-licensed résumé template](https://github.com/jakegut/resume): centered contact header, serif type, ruled section headings, aligned dates and compact bullets. It uses selectable text and Letter pages. It does not require a TeX installation. Longer histories may span multiple pages; content is not silently cut to fit one page. Original uploaded PDFs retain their own layout.

@@ -43,6 +43,10 @@ try {
     (x) => x.status === 'ok',
   );
   const state = await api('/state');
+  const j = await api('/practice', { multiStep: process.env.APPLY_JOBS_VERIFY_MULTISTEP === '1' });
+  const blocked = await api(`/jobs/${j.id}/apply`, {});
+  await assert.rejects(api(`/applications/${blocked.id}/resume`, {}), /confirm your profile/);
+
   await api(
     '/profile',
     {
@@ -57,7 +61,6 @@ try {
     },
     'PUT',
   );
-  const j = await api('/practice', {});
   const a = await api(`/jobs/${j.id}/apply`, {});
   const duplicate = await api(`/jobs/${j.id}/apply`, {});
   assert.equal(a.id, duplicate.id);
@@ -101,6 +104,14 @@ try {
   assert.equal(current.applications[0].receipt.practice, true);
   assert.match(current.applications[0].receipt.confirmation, /Thank you/);
   assert.equal(current.applications.length, 1);
+  if (process.env.APPLY_JOBS_VERIFY_MULTISTEP === '1') {
+    assert.equal(current.applications[0].completedSteps.length, 2);
+    assert(
+      current.applications[0].receipt.fields.some((f: any) =>
+        f.label.includes('Step 1: Full name'),
+      ),
+    );
+  }
   assert.ok((await readFile(path.join(folder, 'documents', `${a.id}.pdf`))).length > 500);
   console.log(
     'PASS: practice fill → required answer → saved answer → review → stale-approval block → pause block → submit → receipt; duplicate prevented.',

@@ -42,3 +42,7 @@ The actual project-local Ollama `qwen3:4b` passed structured inference and résu
 - The earlier release UI was inspected. The current v0.2 visual inspection was blocked by the browser security policy for the localhost URL; no alternate browser route was used to bypass that restriction.
 
 The delivered main workspace retains a blank, unconfirmed profile, no real applications, and Autopilot disabled. Verification uses scratch/temporary data. No employer application or recruiter email was sent.
+
+## Workflow and résumé update
+
+Additional checks cover profile-confirmation rejection before start, all three résumé modes, byte-identical original PDF copying, rejection of fabricated metrics/education changes, grounded edit provenance, dynamic Next/Continue navigation, stalled native validation and a complete three-step practice application with its final submit click, receipt and completed-step history. The existing duplicate, stale-review, pause and restart-uncertainty checks still pass. The installed Qwen model generated restrained and strongest-match sample packets, with three and seven accepted wording edits respectively. A one-page Jake-style sample was rasterized and visually inspected; text extraction preserves readable names and section order. This remains controlled workflow evidence, not certification of all live employer forms.
