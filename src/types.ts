@@ -1,6 +1,9 @@
+export type ResumeMode = 'original' | 'tailored' | 'maximize';
 export interface Profile {
+  resumeMode?: ResumeMode;
   employmentHistory?: {
     company: string;
+    companyLogo?: string;
     title: string;
     start: string;
     end: string;
@@ -21,6 +24,7 @@ export interface Profile {
   linkedin: string;
   website: string;
   summary: string;
+  projects?: string;
   experience: string;
   education: string;
   skills: string;
@@ -45,6 +49,7 @@ export interface Settings {
   excludedCompanies: string;
   pollMinutes: number;
   headless: boolean;
+  browser?: 'system' | 'chrome' | 'edge' | 'chromium';
   remoteOnly?: boolean;
   employmentTypes?: string[];
   seniority?: string[];
@@ -60,6 +65,7 @@ export interface Job {
   canonicalKey: string;
   title: string;
   company: string;
+  companyLogo?: string;
   location: string;
   description: string;
   ats: string;
@@ -110,6 +116,11 @@ export interface Field {
   resolved: boolean;
 }
 export interface Packet {
+  mode?: ResumeMode;
+  originalFile?: string;
+  factEdits?: { id: string; original: string; text: string }[];
+  requiresReview?: boolean;
+  approved?: boolean;
   coverLetterConfirmed?: boolean;
   resumeText: string;
   coverLetter: string;
@@ -127,6 +138,12 @@ export interface Receipt {
   practice: boolean;
 }
 export interface Application {
+  waitingFor?: 'authentication' | 'page';
+  progress?: { message: string; stage: Stage; at: string }[];
+  browserPage?: string;
+  screenshotAt?: string;
+
+  completedSteps?: { url: string; fields: Field[] }[];
   profileSnapshot?: Profile;
   recruiterStatus?: 'applied' | 'interview' | 'rejected' | 'replied';
   submissionIntent?: { hash: string; formHash: string; createdAt: string; profileVersion: number };
@@ -157,7 +174,13 @@ export type SourceKind =
   | 'arbeitnow'
   | 'adzuna'
   | 'usajobs'
-  | 'jooble';
+  | 'jooble'
+  | 'himalayas'
+  | 'jobicy'
+  | 'wwr'
+  | 'rss'
+  | 'workday'
+  | 'simplify';
 export interface WatchSource {
   id: string;
   ats: SourceKind;

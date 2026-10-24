@@ -1,3 +1,4 @@
+import { browserPlan, openSystemBrowser } from './browser.ts';
 import { chromium, type BrowserContext, type Page, type Frame } from 'playwright';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -14,16 +15,36 @@ import {
 import type { Application, Field, Receipt } from '../src/types.ts';
 import { eligible } from './jobs.ts';
 import { matches, checkActive } from './discovery.ts';
-import { adapterFor, findButton, enterApplication, adapters } from './adapters.ts';
+import {
+  adapterFor,
+  findButton,
+  enterApplication,
+  reachApplication,
+  adapters,
+  formProblems,
+  advancePage,
+  pageFingerprint,
+} from './adapters.ts';
 import { answerField, normalize } from './answers.ts';
 import { publicURL } from './network.ts';
-import { renderPDF, hash, fileHash, saveReceipt } from './documents.ts';
+import { renderPDF, renderPacket, hash, fileHash, saveReceipt } from './documents.ts';
 import { preparePacket } from './llm.ts';
 const sessions = new Map<string, { context: BrowserContext; page: Page }>();
 let busy = false;
+const browserWaits = new Map<string, { fingerprint: string; retries: number }>();
+async function watchBrowser(aid: string, page: Page, waitingFor: 'authentication' | 'page') {
+  const previous = browserWaits.get(aid);
+  browserWaits.set(aid, {
+    fingerprint: await pageFingerprint(page),
+    retries: previous?.retries || 0,
+  });
+  update(aid, { waitingFor });
+}
+
 const applicationLocks = new Set<string>();
 export async function withApplicationLock<T>(aid: string, operation: () => Promise<T>): Promise<T> {
-  if (applicationLocks.has(aid)) throw new Error('Another application operation is already running');
+  if (applicationLocks.has(aid))
+    throw new Error('Another application operation is already running');
   applicationLocks.add(aid);
   try {
     return await operation();
@@ -33,6 +54,9 @@ export async function withApplicationLock<T>(aid: string, operation: () => Promi
 }
 const browserOptions = () => ({
   headless: settings().headless || process.env.APPLY_JOBS_HEADLESS === '1',
+  ...(process.env.APPLY_JOBS_HEADLESS === '1'
+    ? {}
+    : { channel: browserPlan(settings().browser).channel }),
   ...(process.env.APPLY_JOBS_CHROME ? { executablePath: process.env.APPLY_JOBS_CHROME } : {}),
 });
 const checkRunning = () => {
@@ -45,6 +69,7 @@ export async function closeSession(aid: string) {
   const s = sessions.get(aid);
   if (s) {
     sessions.delete(aid);
+    browserWaits.delete(aid);
     await s.context.close().catch(() => {});
   }
 }
@@ -52,7 +77,14 @@ async function openSession(a: Application) {
   if (sessions.has(a.id)) return sessions.get(a.id)!;
   if (sessions.size) throw new Error('Finish or close the current browser session first');
   const context = await chromium.launchPersistentContext(
-    path.join(dataDir, 'browser', 'candidate'),
+    path.join(
+      dataDir,
+      'browser',
+      browserPlan(settings().browser).profile === 'chromium' ||
+        process.env.APPLY_JOBS_HEADLESS === '1'
+        ? 'candidate'
+        : browserPlan(settings().browser).profile,
+    ),
     {
       ...browserOptions(),
       viewport: { width: 1280, height: 900 },
@@ -80,6 +112,13 @@ async function openSession(a: Application) {
   const page = context.pages()[0] || (await context.newPage());
   page.setDefaultTimeout(7000);
   sessions.set(a.id, { context, page });
+  context.on('close', () => {
+    sessions.delete(a.id);
+  });
+  page.on('close', () => {
+    sessions.delete(a.id);
+    void context.close().catch(() => {});
+  });
   try {
     await page.goto(a.job.url, { waitUntil: 'domcontentloaded', timeout: 40000 });
     return { context, page };
@@ -108,6 +147,31 @@ export async function inspectFormFrame(
       const radioDone: { form: HTMLFormElement | null; name: string }[] = [];
       for (const [i, el] of elements.entries()) {
         const type = el.getAttribute('type') || el.tagName.toLowerCase();
+        if (type === 'search' || el.closest('[role="search"]')) continue;
+        if (el.getAttribute('role') === 'combobox' && el.querySelector('input,select,textarea'))
+          continue;
+        const form = (el as HTMLInputElement).form || el.closest('form');
+        if (
+          form &&
+          /newsletter|subscribe|search/i.test(
+            [
+              form.id,
+              form.getAttribute('name'),
+              form.className,
+              form.getAttribute('aria-label'),
+            ].join(' '),
+          )
+        )
+          continue;
+        const applicationForms = Array.from(document.querySelectorAll('form')).filter(
+          (f) =>
+            f.querySelector('input[type="file"]') ||
+            /application|resume|résumé|curriculum/i.test(
+              [f.id, f.getAttribute('name'), f.getAttribute('aria-label')].join(' '),
+            ),
+        );
+        if (applicationForms.length && !applicationForms.some((f) => f.contains(el))) continue;
+
         if (['hidden', 'submit', 'button', 'reset', 'image'].includes(type) || el.disabled)
           continue;
         if (!el.getClientRects().length && type !== 'file') continue;
@@ -147,18 +211,16 @@ export async function inspectFormFrame(
           if (name) {
             if (radioDone.some((seen) => seen.form === input.form && seen.name === name)) continue;
             radioDone.push({ form: input.form, name });
-            group = elements.filter(
-              (x) => {
-                const radio = x as HTMLInputElement;
-                return (
-                  radio.getAttribute('type') === 'radio' &&
-                  radio.getAttribute('name') === name &&
-                  radio.form === input.form &&
-                  !radio.disabled &&
-                  !!radio.getClientRects().length
-                );
-              },
-            ) as HTMLInputElement[];
+            group = elements.filter((x) => {
+              const radio = x as HTMLInputElement;
+              return (
+                radio.getAttribute('type') === 'radio' &&
+                radio.getAttribute('name') === name &&
+                radio.form === input.form &&
+                !radio.disabled &&
+                !!radio.getClientRects().length
+              );
+            }) as HTMLInputElement[];
           } else group = [input];
           label =
             el.closest('fieldset')?.querySelector('legend')?.textContent ||
@@ -217,10 +279,18 @@ export async function inspectFormFrame(
   );
 }
 async function inspect(page: Page) {
+  // Microsoft's posting includes a résumé-match upload, separate from applying.
+  const current = new URL(page.url());
+  if (
+    current.hostname === 'apply.careers.microsoft.com' &&
+    /^\/careers\/job\//.test(current.pathname)
+  )
+    return [];
+
   const result: Field[] = [];
   for (const [i, frame] of page.frames().entries()) {
     try {
-      result.push(...(await inspectFormFrame(frame, i)));
+      result.push(...(await inspectFormFrame(frame, i, adapterFor(page.url()).id)));
     } catch {}
   }
   const counts = new Map<string, number>();
@@ -281,6 +351,7 @@ export async function fillFormField(page: Page, f: Field, value: string, aid: st
   }
 }
 async function snapshot(page: Page, fields: Field[]) {
+  const reviewText = fields.length ? '' : await pageFingerprint(page);
   const content = fields.map((f) => ({
     id: f.id,
     label: f.label,
@@ -289,7 +360,23 @@ async function snapshot(page: Page, fields: Field[]) {
     value: f.value,
   }));
   const url = page.url();
-  return hash(JSON.stringify({ url, content }));
+  const retainedValues = [];
+  for (const frame of page.frames()) {
+    try {
+      retainedValues.push(
+        await frame.evaluate(() =>
+          Array.from(
+            document.querySelectorAll<HTMLInputElement>('[data-aj-field],[data-aj-radio]'),
+          ).map((el) => ({
+            id: el.getAttribute('data-aj-field') || el.getAttribute('data-aj-radio'),
+            value: el.value,
+            checked: el.checked,
+          })),
+        ),
+      );
+    } catch {}
+  }
+  return hash(JSON.stringify({ url, content, reviewText, retainedValues }));
 }
 async function screenshot(aid: string, page: Page) {
   await page
@@ -298,6 +385,10 @@ async function screenshot(aid: string, page: Page) {
       fullPage: true,
       timeout: 15000,
     })
+    .then(() => {
+      const u = new URL(page.url());
+      update(aid, { screenshotAt: now(), browserPage: u.origin + u.pathname });
+    })
     .catch(() => {});
 }
 async function challenge(page: Page) {
@@ -305,7 +396,7 @@ async function challenge(page: Page) {
   if ((await password.count()) && (await password.isVisible())) return true;
   const text = (await page.locator('body').innerText()).slice(0, 25000);
   if (
-    /verify you are human|complete the captcha|security verification|two.factor authentication|enter.*verification code|sign in to your account/i.test(
+    /verify you are human|complete the captcha|security verification|two.factor authentication|enter.*verification code|sign in to your account|select a method below to sign in|sign in using (?:microsoft|google|linkedin|facebook)|sign in or create an account/i.test(
       text,
     )
   )
@@ -340,8 +431,8 @@ async function processApplicationLocked(aid: string) {
     }
     if (!a.packet || a.profileVersion !== p.version) {
       update(aid, { stage: 'preparing', message: 'Preparing your application documents…' });
-      const packet = await preparePacket(p, a.job, false);
-      await renderPDF(aid, packet.resumeText);
+      const packet = await preparePacket(p, a.job);
+      await renderPacket(aid, packet);
       update(aid, { packet, profileVersion: p.version, profileSnapshot: p });
     }
     a = application(aid)!;
@@ -352,6 +443,21 @@ async function processApplicationLocked(aid: string) {
     });
     if (!a.job.practice && new URL(a.job.url).protocol !== 'https:')
       throw new Error('Use the employer’s HTTPS job URL before filling your personal information.');
+    const browser = browserPlan(settings().browser);
+    if (
+      !hasSession(aid) &&
+      browser.mode === 'external' &&
+      process.env.APPLY_JOBS_HEADLESS !== '1' &&
+      !process.env.APPLY_JOBS_CHROME
+    ) {
+      await openSystemBrowser(a.job.url);
+      update(aid, {
+        stage: 'needs_user',
+        message: `Opened in ${browser.systemName}, your default browser. Automatic filling is unavailable in this browser. Select Chrome, Edge or the built-in browser in Settings to continue automatically.`,
+        fields: [],
+      });
+      return;
+    }
     const { page } = await openSession(a);
     if (adapterFor(page.url()).mode === 'capture') {
       if (!(await enterApplication(page))) {
@@ -365,21 +471,34 @@ async function processApplicationLocked(aid: string) {
     }
     if (a.packet?.coverLetter && a.packet.coverLetterConfirmed)
       await renderPDF(aid + '-cover', p.name + '\n\n' + a.packet.coverLetter);
-    for (let step = 0; step < 8; step++) {
+    for (let step = 0; step < 16; step++) {
       checkRunning();
       if (await challenge(page)) {
         update(aid, {
           stage: 'needs_user',
-          message: 'Complete the login or verification in the browser, then choose Resume.',
+          message:
+            'Waiting for employer sign-in or verification. I’ll continue automatically when it is complete.',
         });
+        await watchBrowser(aid, page, 'authentication');
         await screenshot(aid, page);
         return;
       }
       const seen = await inspect(page);
+      update(aid, {
+        message: seen.length
+          ? `Matching and filling ${seen.length} application fields…`
+          : 'Looking for the employer application form…',
+      });
       const previous = application(aid)!.fields;
       const fields: Field[] = [];
       for (const f of seen) {
-        const prior = previous.find((x) => x.label === f.label && x.source === 'Your answer');
+        const prior = previous.find(
+          (x) =>
+            x.label === f.label &&
+            (x.occurrence || 0) === (f.occurrence || 0) &&
+            x.type === f.type &&
+            x.source === 'Your answer',
+        );
         const answer = prior
           ? { answer: prior.answer, source: prior.source, resolved: true }
           : /cover.?letter/i.test(f.label) && a.packet?.coverLetterConfirmed && a.packet.coverLetter
@@ -406,16 +525,52 @@ async function processApplicationLocked(aid: string) {
         fields.push(f);
       }
       if (!fields.length) {
-        if (await enterApplication(page)) {
-          await page.waitForTimeout(600);
-          continue;
+        if (previous.length && (await finalButton(page))) {
+          fields.push(...previous);
+        } else {
+          update(aid, {
+            message: 'Waiting for the employer page and opening the application form…',
+          });
+          const result = await reachApplication(page, {
+            ready: async () => (await inspect(page)).length > 0,
+            blocked: () => challenge(page),
+            checkRunning,
+          });
+          if (result === 'ready') continue;
+          if (result === 'blocked') {
+            update(aid, {
+              stage: 'needs_user',
+              message:
+                'The employer requires sign-in or verification. Complete it in the browser; I’ll continue automatically.',
+            });
+            await watchBrowser(aid, page, 'authentication');
+            await screenshot(aid, page);
+            return;
+          }
         }
-        update(aid, {
-          stage: 'needs_user',
-          fields: [],
-          message: 'Open the application form in the browser, then Resume.',
-        });
-        return;
+        if (!fields.length) {
+          update(aid, {
+            stage: 'needs_user',
+            fields: [],
+            message:
+              'The employer form did not become available after waiting and trying its Apply links. Check the browser for an unavailable listing or an unsupported application step, then choose Resume.',
+          });
+          await watchBrowser(aid, page, 'page');
+          await screenshot(aid, page);
+          return;
+        }
+      }
+      // Read native validation after React/blur handlers, rather than assuming fill succeeded.
+      await page
+        .evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+        .catch(() => {});
+      for (const problem of await formProblems(page)) {
+        const field = fields.find((f) => f.id === problem.id);
+        if (field) {
+          field.resolved = false;
+          field.required = true;
+          field.source = problem.message;
+        }
       }
       const missing = fields.filter((f) => f.required && !f.resolved);
       await screenshot(aid, page);
@@ -439,7 +594,10 @@ async function processApplicationLocked(aid: string) {
         update(aid, {
           stage: 'review',
           fields: merged,
-          message: 'Your form is ready. Review every answer before submitting.',
+          message:
+            a.packet?.requiresReview && !a.packet.approved
+              ? 'The form is ready. AI résumé edits are available in Documents; final approval includes the résumé and answers.'
+              : 'All recognized steps are complete. Review the answers, then click Approve & submit application.',
           snapshotHash,
           profileVersion: p.version,
           revision: application(aid)!.revision + 1,
@@ -452,7 +610,8 @@ async function processApplicationLocked(aid: string) {
           eligible(a.job, settings()) &&
           matches(a.job, settings()) &&
           adapterFor(page.url()).mode === 'automatic' &&
-          !application(aid)!.packet?.coverLetter &&
+          (!application(aid)!.packet?.coverLetter ||
+            !!application(aid)!.packet?.coverLetterConfirmed) &&
           fields.every((f) => !f.required || f.resolved) &&
           !fields.some((f) => f.source === 'Browser value')
         )
@@ -462,15 +621,43 @@ async function processApplicationLocked(aid: string) {
       const next = await findButton(page, 'next');
       if (next) {
         checkRunning();
-        await next.click();
-        await page.waitForTimeout(800);
-        continue;
+        update(aid, {
+          fields,
+          message: 'Answers filled. Continuing to the next application step…',
+        });
+        const stepUrl = page.url();
+        if (await advancePage(page, next)) {
+          const completed = application(aid)!.completedSteps || [];
+          const signature = (items: Field[]) =>
+            JSON.stringify(items.map((f) => [f.label, f.value]));
+          if (
+            !completed.some((s) => s.url === stepUrl && signature(s.fields) === signature(fields))
+          )
+            completed.push({ url: stepUrl, fields });
+          update(aid, { completedSteps: completed, fields });
+          continue;
+        }
+        update(aid, {
+          stage: 'needs_user',
+          fields,
+          snapshotHash: '',
+          message:
+            'The Next button did not advance the form. Check the browser for validation messages or a required selection, then Resume.',
+        });
+        await screenshot(aid, page);
+        return;
       }
+      const disabledAction =
+        (await findButton(page, 'submit', true)) || (await findButton(page, 'next', true));
       update(aid, {
         stage: 'needs_user',
         fields,
-        message: 'This page needs a manual step. Continue in the browser, then choose Resume.',
+        message: disabledAction
+          ? 'Waiting for the employer’s action button to become available. Upload processing or validation may still be running.'
+          : 'No supported Continue or Submit action is visible. Watching for the employer page to change.',
       });
+      await watchBrowser(aid, page, 'page');
+      await screenshot(aid, page);
       return;
     }
     update(aid, {
@@ -504,6 +691,9 @@ async function submitApplicationLocked(aid: string, approvedHash: string) {
     throw new Error('The form changed in the browser. Resume and review it again.');
   const button = await finalButton(session.page);
   if (!button) throw new Error('Submit button not found. Continue in the browser.');
+  const invalid = await formProblems(session.page);
+  if (invalid.length)
+    throw new Error('The employer form still has validation errors. Resume to review them.');
   const beforeText = await session.page.locator('body').innerText();
   if (a.profileVersion !== profile().version)
     throw new Error('Your profile changed during review. Resume and review the application again.');
@@ -524,8 +714,28 @@ async function submitApplicationLocked(aid: string, approvedHash: string) {
   try {
     checkRunning();
     await button.click({ timeout: 15000 });
-    await session.page.waitForTimeout(1800);
-    const body = await session.page.locator('body').innerText();
+    const successPattern =
+      /thank you for (?:applying|your application|your interest)|application (?:has been |was )?(?:submitted|received)|successfully (?:submitted|applied)|we(?:’|')ve received your application/i;
+    let body = '';
+    for (let i = 0; i < 60; i++) {
+      await session.page.waitForTimeout(250);
+      body = await session.page
+        .locator('body')
+        .innerText()
+        .catch(() => '');
+      if (successPattern.test(body) && body !== beforeText) break;
+      const invalidAfter = await formProblems(session.page);
+      if (invalidAfter.length) {
+        update(aid, {
+          stage: 'needs_user',
+          snapshotHash: '',
+          message:
+            'The employer rejected one or more fields. Correct the validation messages in the browser and Resume.',
+        });
+        await screenshot(aid, session.page);
+        return;
+      }
+    }
     const confirm = body.match(
       /(?:thank you for (?:applying|your (?:application|interest))|application (?:has been |was )?(?:submitted|received)|successfully (?:submitted|applied)|we(?:’|')ve received your application)[^\n]{0,220}/i,
     );
@@ -543,7 +753,12 @@ async function submitApplicationLocked(aid: string, approvedHash: string) {
       submittedAt: now(),
       url: session.page.url(),
       confirmation: confirm[0],
-      fields: current.map((f) => ({
+      fields: [
+        ...(a.completedSteps || []).flatMap((s, i) =>
+          s.fields.map((f) => ({ ...f, label: `Step ${i + 1}: ${f.label}` })),
+        ),
+        ...current,
+      ].map((f) => ({
         label: f.label,
         value: f.type === 'file' ? f.value.replace(/^.*[\\/]/, '') : f.value,
       })),
@@ -581,7 +796,10 @@ export async function applyAnswers(
 ) {
   return withApplicationLock(aid, () => applyAnswersLocked(aid, answers));
 }
-async function applyAnswersLocked(aid: string, answers: { id: string; value: string; save: boolean }[]) {
+async function applyAnswersLocked(
+  aid: string,
+  answers: { id: string; value: string; save: boolean }[],
+) {
   const a = application(aid);
   const s = sessions.get(aid);
   if (!a || !s) throw new Error('Resume the browser session before editing answers');
@@ -615,12 +833,49 @@ async function applyAnswersLocked(aid: string, answers: { id: string; value: str
 import { setKV } from './store.ts';
 function saveProfileAnswers(p: ReturnType<typeof profile>, save: boolean) {
   if (save) {
-    p.version++;
+    // Saved question answers do not change the résumé facts or invalidate its approval.
     setKV('profile', p);
   }
 }
 export async function enqueueTick() {
-  if (busy || settings().paused || sessions.size) return;
+  if (busy || settings().paused) return;
+  if (sessions.size) {
+    for (const [aid, session] of sessions) {
+      const a = application(aid);
+      if (a?.stage !== 'needs_user' || !a.waitingFor || applicationLocks.has(aid)) continue;
+      busy = true;
+      try {
+        if (!a.screenshotAt || Date.now() - Date.parse(a.screenshotAt) >= 15000)
+          await screenshot(aid, session.page);
+        const previous = browserWaits.get(aid);
+        const fingerprint = await pageFingerprint(session.page);
+        const blocked = await challenge(session.page);
+        const ready =
+          a.waitingFor === 'authentication'
+            ? !blocked &&
+              ((await inspect(session.page)).length > 0 ||
+                !!(await findButton(session.page, 'apply')))
+            : !blocked && !!previous && previous.fingerprint !== fingerprint;
+        if (ready && (previous?.retries || 0) >= 3) {
+          update(aid, {
+            waitingFor: undefined,
+            message:
+              'Automatic retries could not finish this employer step. Check the browser for the specific requirement, then Resume.',
+          });
+        } else if (ready) {
+          browserWaits.set(aid, { fingerprint, retries: (previous?.retries || 0) + 1 });
+          update(aid, { message: 'The employer page is ready. Continuing automatically…' });
+          await processApplication(aid);
+        }
+      } catch (e) {
+        event('Browser monitoring stopped: ' + (e as Error).message, 'warning', aid);
+        update(aid, { waitingFor: undefined });
+      } finally {
+        busy = false;
+      }
+    }
+    return;
+  }
   const a = applications()
     .reverse()
     .find((a) => a.stage === 'queued');
@@ -631,6 +886,33 @@ export async function enqueueTick() {
   } finally {
     busy = false;
   }
+}
+export function startApplication(aid: string) {
+  checkRunning();
+  const p = profile();
+  if (!p.confirmed || !p.name || !p.email)
+    throw new Error(
+      'Review and confirm your profile in My profile before starting this application.',
+    );
+  if (busy || applicationLocks.has(aid))
+    throw new Error('Another browser operation is still running. Wait for it to finish.');
+  if (sessions.size && !sessions.has(aid))
+    throw new Error('Close the other application browser before starting this one.');
+  browserWaits.delete(aid);
+  busy = true;
+  update(aid, {
+    stage: 'preparing',
+    error: '',
+    message: 'Preparing your saved résumé mode and opening the application…',
+  });
+  void processApplication(aid)
+    .catch((e) => {
+      update(aid, { stage: 'needs_user', message: e.message, error: e.message });
+      event(e.message, 'warning', aid);
+    })
+    .finally(() => {
+      busy = false;
+    });
 }
 export async function exclusiveProcess(aid: string) {
   if (busy) throw new Error('A browser operation is already running');

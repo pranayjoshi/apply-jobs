@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY,data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,application_id TEXT,message TEXT NOT NULL,kind TEXT NOT NULL,created_at TEXT NOT NULL);
 PRAGMA user_version=1;`);
 export const blankProfile: Profile = {
+  resumeMode: 'original',
   name: '',
   email: '',
   phone: '',
@@ -25,6 +26,7 @@ export const blankProfile: Profile = {
   linkedin: '',
   website: '',
   summary: '',
+  projects: '',
   experience: '',
   education: '',
   skills: '',
@@ -47,8 +49,9 @@ export const defaultSettings: Settings = {
   roles: '',
   locations: '',
   excludedCompanies: '',
-  pollMinutes: 60,
+  pollMinutes: 2,
   headless: false,
+  browser: 'system',
   remoteOnly: false,
   employmentTypes: [],
   seniority: [],
@@ -121,8 +124,7 @@ export function applications(): Application[] {
 }
 export function application(aid: string): Application | undefined {
   const row = db.prepare('SELECT data FROM applications WHERE id=?').get(aid) as
-    | { data: string }
-    | undefined;
+    { data: string } | undefined;
   if (!row) return undefined;
   const application = JSON.parse(row.data) as Application;
   return { ...application, job: job(application.jobId)! };
@@ -163,6 +165,13 @@ export function deleteSource(sid: string) {
 export function update(aid: string, patch: Partial<Application>) {
   const a = application(aid);
   if (!a) throw new Error('Application not found');
+  if (patch.message && patch.message !== a.message) {
+    a.progress = [
+      ...(a.progress || []),
+      { message: patch.message, stage: patch.stage || a.stage, at: now() },
+    ].slice(-40);
+  }
+  if (patch.stage) a.waitingFor = undefined;
   Object.assign(a, patch);
   saveApplication(a);
   return a;
