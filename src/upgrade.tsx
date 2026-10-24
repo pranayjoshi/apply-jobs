@@ -579,9 +579,17 @@ export function SetupWizard({
     [candidate, setCandidate] = useState<Profile>(s.profile),
     [filters, setFilters] = useState(s.settings),
     [busy, setBusy] = useState(''),
-    [feeds, setFeeds] = useState(['remotive', 'remoteok', 'arbeitnow']),
+    [feeds, setFeeds] = useState([
+      'remotive',
+      'remoteok',
+      'arbeitnow',
+      'himalayas',
+      'jobicy',
+      'wwr',
+    ]),
     [companies, setCompanies] = useState<string[]>([]),
-    [catalog, setCatalog] = useState<any>(null);
+    [catalog, setCatalog] = useState<any>(null),
+    [profileNotice, setProfileNotice] = useState('');
   useEffect(() => {
     void request('/catalog').then(setCatalog);
   }, []);
@@ -589,6 +597,7 @@ export function SetupWizard({
     setter(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
   const importResume = async (file: File) => {
     setBusy('import');
+    setProfileNotice('Reading your résumé…');
     try {
       const form = new FormData();
       form.set('resume', file);
@@ -596,10 +605,37 @@ export function SetupWizard({
       setCandidate(result.profile);
       if (s.settings.model) {
         try {
+          setProfileNotice('Extracting your background and drafting a summary when needed…');
           const extracted = await action(() => request('/profile/extract', {}));
           setCandidate(extracted);
-        } catch {}
+          setProfileNotice(
+            extracted.summaryDraftError
+              ? 'Your background was extracted. Summary drafting needs another try: ' +
+                  extracted.summaryDraftError
+              : 'Your background is ready. A missing summary is drafted from your résumé. Review all fields before confirming.',
+          );
+        } catch (e) {
+          setProfileNotice(
+            'Your résumé was imported, but AI extraction could not finish: ' + (e as Error).message,
+          );
+        }
+      } else {
+        setProfileNotice(
+          'Connect a model to extract your background and draft a summary, or enter your details below.',
+        );
       }
+    } finally {
+      setBusy('');
+    }
+  };
+  const generateSummary = async () => {
+    setBusy('summary');
+    try {
+      const result = await action(() => request('/profile/summary', candidate));
+      setCandidate({ ...candidate, summary: result.summary, confirmed: false });
+      setProfileNotice('AI summary drafted from your background. Review it before confirming.');
+    } catch (e) {
+      setProfileNotice((e as Error).message);
     } finally {
       setBusy('');
     }
@@ -699,7 +735,7 @@ export function SetupWizard({
           <label className="upload-zone">
             <Upload size={24} />
             <strong>{busy === 'import' ? 'Reading your résumé…' : 'Attach your résumé'}</strong>
-            <span>PDF, DOCX, TXT or image · stays local</span>
+            <span>PDF, DOCX, TXT or image · uses your connected model</span>
             <input
               type="file"
               accept=".pdf,.docx,.txt,.png,.jpg,.jpeg"
@@ -725,14 +761,14 @@ export function SetupWizard({
                   }[k]
                 }
                 type={k === 'email' ? 'email' : 'text'}
-                value={candidate[k]}
+                value={candidate[k] || ''}
                 onChange={(e) =>
                   setCandidate({ ...candidate, [k]: e.target.value, confirmed: false })
                 }
               />
             ))}
           </div>
-          {(['summary', 'experience', 'education', 'skills'] as const).map((k) => (
+          {(['summary', 'experience', 'education', 'projects', 'skills'] as const).map((k) => (
             <Area
               key={k}
               label={k.charAt(0).toUpperCase() + k.slice(1)}
@@ -743,6 +779,53 @@ export function SetupWizard({
               }
             />
           ))}
+          <div className="inline-controls">
+            <Btn
+              secondary
+              disabled={!!busy || !candidate.resumeText.trim()}
+              onClick={() => {
+                setBusy('extract');
+                void action(() => request('/profile/extract', {}))
+                  .then((result) => {
+                    setCandidate({ ...result, confirmed: false });
+                    setProfileNotice(
+                      result.summaryDraftError ||
+                        'Background, education and projects extracted. Review the details below.',
+                    );
+                  })
+                  .catch((e) => setProfileNotice((e as Error).message))
+                  .finally(() => setBusy(''));
+              }}
+            >
+              {busy === 'extract' ? (
+                <LoaderCircle size={15} className="spin" />
+              ) : (
+                <RefreshCw size={15} />
+              )}
+              {busy === 'extract' ? 'Extracting background…' : 'Re-extract résumé details'}
+            </Btn>
+            <Btn secondary disabled={!!busy} onClick={() => void generateSummary()}>
+              {busy === 'summary' ? (
+                <LoaderCircle size={15} className="spin" />
+              ) : (
+                <Sparkles size={15} />
+              )}
+              {busy === 'summary'
+                ? 'Drafting summary…'
+                : candidate.summary.trim()
+                  ? 'Regenerate summary with AI'
+                  : 'Generate summary with AI'}
+            </Btn>
+            <span className="help-text">
+              Uses your résumé and background. Review the draft before confirming.
+            </span>
+          </div>
+          {profileNotice && (
+            <p className="help-text" role="status">
+              {profileNotice}
+            </p>
+          )}
+          <ResumePreferences profile={candidate} onChange={setCandidate} />
           <label className="confirm-inline">
             <input
               type="checkbox"
@@ -781,7 +864,7 @@ export function SetupWizard({
               Integrations.
             </p>
             <div className="source-choice-grid">
-              {['remotive', 'remoteok', 'arbeitnow'].map((kind) => (
+              {['remotive', 'remoteok', 'arbeitnow', 'himalayas', 'jobicy', 'wwr'].map((kind) => (
                 <label key={kind}>
                   <input
                     type="checkbox"
@@ -853,6 +936,36 @@ export function SetupWizard({
     </>
   );
 }
+function CompanyLogo({ job }: { job: Job }) {
+  const [failed, setFailed] = useState(false);
+  const hue = [...job.company].reduce((sum, c) => sum + c.charCodeAt(0) * 7, 0) % 360;
+  return (
+    <span
+      className="company-brand"
+      style={{ background: `hsl(${hue} 65% 94%)`, color: `hsl(${hue} 55% 30%)` }}
+    >
+      {job.companyLogo && !failed ? (
+        <img
+          src={job.companyLogo}
+          alt={`${job.company} logo`}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <span>
+          {job.company
+            .split(/\s+/)
+            .slice(0, 2)
+            .map((w) => w[0])
+            .join('')
+            .toUpperCase()}
+        </span>
+      )}
+    </span>
+  );
+}
 export function JobExplorer({
   state: s,
   action,
@@ -868,7 +981,8 @@ export function JobExplorer({
 }) {
   const [tab, setTab] = useState('matching'),
     [q, setQ] = useState(''),
-    [sort, setSort] = useState('fit'),
+    [sort, setSort] = useState('newest'),
+    [country, setCountry] = useState(''),
     [page, setPage] = useState(1),
     [result, setResult] = useState<any>({ jobs: [], total: 0, pages: 0, coverage: [] }),
     [loading, setLoading] = useState(false),
@@ -886,7 +1000,7 @@ export function JobExplorer({
     const t = setTimeout(() => {
       setLoading(true);
       void request(
-        `/jobs/search?${new URLSearchParams({ q, sort, page: String(page), matching: String(tab === 'matching') })}`,
+        `/jobs/search?${new URLSearchParams({ q, sort, country, page: String(page), matching: String(tab === 'matching') })}`,
       )
         .then((v) => active && setResult(v))
         .catch(() => {})
@@ -896,7 +1010,7 @@ export function JobExplorer({
       active = false;
       clearTimeout(t);
     };
-  }, [q, sort, page, tab, stamp]);
+  }, [q, sort, country, page, tab, stamp]);
   const start = () =>
     void action(
       () => request('/discovery/start', {}),
@@ -982,6 +1096,7 @@ export function JobExplorer({
           >
             <option value="fit">Best fit</option>
             <option value="newest">Newest published</option>
+            <option value="country">Country A–Z</option>
           </select>
         </div>
       </div>
@@ -1125,7 +1240,64 @@ export function JobExplorer({
         </section>
       ) : (
         <>
+          <section className="discovery-banner">
+            <div>
+              <span className="discovery-eyebrow">YOUR NEXT CHAPTER</span>
+              <h2>Find a role worth getting excited about.</h2>
+              <p>Fresh opportunities. Direct employer boards. A wider view of what’s next.</p>
+            </div>
+            <div className="live-discovery">
+              <span className={s.settings.paused ? '' : 'live-dot'} />
+              {s.settings.paused ? 'Updates paused' : 'Background discovery on'}
+              <small>Checks from {s.settings.pollMinutes} min · source limits apply</small>
+            </div>
+          </section>
+          <div className="discovery-quick-filters">
+            <button
+              className={sort === 'newest' ? 'active' : ''}
+              onClick={() => {
+                setSort('newest');
+                setPage(1);
+              }}
+            >
+              ✦ Latest openings
+            </button>
+            <button
+              className={sort === 'fit' ? 'active' : ''}
+              onClick={() => {
+                setSort('fit');
+                setPage(1);
+              }}
+            >
+              Best fit for you
+            </button>
+            <button onClick={() => setSourceModal(true)}>+ Explore more sources</button>
+          </div>
           <div className="search-results-toolbar">
+            <label className="country-control">
+              Country
+              <select
+                aria-label="Filter jobs by country"
+                value={country}
+                onChange={(e) => {
+                  setCountry(e.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">All countries</option>
+                {[
+                  ...new Set<string>([
+                    ...(result.countries || []),
+                    ...(country && country !== 'Unknown' ? [country] : []),
+                  ]),
+                ].map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+                <option value="Unknown">Country unspecified</option>
+              </select>
+            </label>
             <div className="search-input">
               <Search size={16} />
               <input
@@ -1150,16 +1322,23 @@ export function JobExplorer({
               {result.jobs.map((j: Job) => (
                 <article className="panel job-card enhanced-job" key={j.id}>
                   <div className="job-card-top">
-                    <span className="company-icon mint">{j.company.slice(0, 2).toUpperCase()}</span>
+                    <CompanyLogo job={j} />
                     <span className="fit-pill">{j.score}% fit</span>
                   </div>
                   <span className="job-company">{j.company}</span>
+                  {Date.now() - Date.parse(j.publishedAt || j.createdAt) < 86400000 && (
+                    <span className="new-job-badge">New today</span>
+                  )}
                   <button className="job-title" onClick={() => onDetail(j)}>
                     <h3>{j.title}</h3>
                   </button>
                   <p>
                     {j.remote ? 'Remote · ' : ''}
                     {j.location || 'Location not supplied'}
+                  </p>
+                  <p className="job-preview">
+                    {j.description.slice(0, 165)}
+                    {j.description.length > 165 ? '…' : ''}
                   </p>
                   <div className="job-meta-chips">
                     {j.employmentType && <span>{j.employmentType}</span>}
@@ -1287,6 +1466,29 @@ function SourcePicker({ action, onClose }: { action: Action; onClose: () => void
           <X size={18} />
         </button>
         <h2>More places to find your next role.</h2>
+        <label className="form-label">
+          Quick connect an employer
+          <select
+            defaultValue=""
+            onChange={(e) => {
+              const c = data?.directory.find((x: any) => x.name === e.target.value);
+              if (c) {
+                setKind(c.ats);
+                setBoard(c.board);
+                setLabel(c.name);
+              }
+            }}
+          >
+            <option value="" disabled>
+              Select an employer · Ashby, Workday & more
+            </option>
+            {data?.directory.map((c: any) => (
+              <option key={c.name} value={c.name}>
+                {c.name} · {c.ats === 'ashby' ? 'Ashby' : c.ats}
+              </option>
+            ))}
+          </select>
+        </label>
         <p>Choose a public feed, paste an employer career page, or connect your API account.</p>
         <div className="inline-controls">
           <Input
@@ -1338,7 +1540,13 @@ function SourcePicker({ action, onClose }: { action: Action; onClose: () => void
         {item?.requiresBoard && (
           <Input
             label={
-              kind === 'adzuna' ? 'Country code (us, gb, ca, etc.)' : 'Company board identifier'
+              kind === 'workday'
+                ? 'Workday employer career URL'
+                : kind === 'rss'
+                  ? 'Public RSS or Atom feed URL'
+                  : kind === 'adzuna'
+                    ? 'Country code (us, gb, ca, etc.)'
+                    : 'Company board identifier'
             }
             value={board}
             onChange={(e) => setBoard(e.target.value)}
@@ -1393,6 +1601,12 @@ function SourcePicker({ action, onClose }: { action: Action; onClose: () => void
   );
 }
 export function IntegrationSettings({ state: s, action }: { state: AppState; action: Action }) {
+  const [browser, setBrowser] = useState<any>(null);
+  useEffect(() => {
+    void request('/browser')
+      .then(setBrowser)
+      .catch(() => {});
+  }, [s.settings.browser]);
   return (
     <>
       <div className="page-heading">
@@ -1405,10 +1619,37 @@ export function IntegrationSettings({ state: s, action }: { state: AppState; act
       <ModelConnector state={s} action={action} />
       <section className="panel form-panel">
         <h2>Browser & scheduling</h2>
+        <label className="form-label">
+          Application browser
+          <select
+            value={s.settings.browser || 'system'}
+            onChange={(e) =>
+              void action(
+                () => request('/settings', { ...s.settings, browser: e.target.value }, 'PUT'),
+                'Browser preference saved. Used for the next application browser session.',
+              ).catch(() => {})
+            }
+          >
+            <option value="system">
+              System default{browser?.systemName ? ` · ${browser.systemName}` : ''}
+            </option>
+            <option value="chrome">Google Chrome · automatic filling</option>
+            <option value="edge">Microsoft Edge · automatic filling</option>
+            <option value="chromium">Built-in browser · automatic filling</option>
+          </select>
+        </label>
+        <p className="help-text">
+          {browser?.mode === 'external'
+            ? 'Your default browser opens jobs using your normal browser session. Safari and other unsupported browsers require manual filling; Autopilot will wait. Choose Chrome, Edge or the built-in browser for automatic applications.'
+            : 'Automatic applications use a dedicated profile in this browser. Your everyday tabs and saved logins are separate.'}{' '}
+          Changes apply after closing the current application browser.
+        </p>
+
         <label className="confirm-inline">
           <input
             type="checkbox"
             checked={s.settings.headless}
+            disabled={browser?.mode === 'external'}
             onChange={(e) =>
               void action(() =>
                 request('/settings', { ...s.settings, headless: e.target.checked }, 'PUT'),
@@ -1423,12 +1664,12 @@ export function IntegrationSettings({ state: s, action }: { state: AppState; act
         <Input
           label="Employer feed check interval (minutes)"
           type="number"
-          min={5}
+          min={1}
           max={1440}
           value={s.settings.pollMinutes}
           onChange={(e) => {
             const value = +e.target.value;
-            if (value >= 5 && value <= 1440)
+            if (value >= 1 && value <= 1440)
               void action(() =>
                 request('/settings', { ...s.settings, pollMinutes: value }, 'PUT'),
               ).catch(() => {});
@@ -1946,6 +2187,62 @@ export function StructuredHistory({
         <Plus size={14} />
         Add education
       </Btn>
+    </section>
+  );
+}
+
+export function ResumePreferences({
+  profile: p,
+  onChange,
+}: {
+  profile: Profile;
+  onChange: (p: Profile) => void;
+}) {
+  return (
+    <section className="panel form-panel">
+      <h2>Your résumé strategy</h2>
+      <p className="muted">
+        Applied automatically when preparing each application. AI edits stay grounded in your
+        background and are shown for review.
+      </p>
+      <div className="resume-modes">
+        {(
+          [
+            [
+              'original',
+              '1. Original',
+              'Use your uploaded PDF unchanged. Other formats retain their content in the Jake-style layout.',
+            ],
+            [
+              'tailored',
+              '2. Tailored, keep it real',
+              'Focus on relevant experience and make restrained, factual bullet edits for each job.',
+            ],
+            [
+              'maximize',
+              '3. Strongest match',
+              'Sharpen the wording and emphasize relevant achievements and projects. No invented skills, employers, dates or results.',
+            ],
+          ] as const
+        ).map(([mode, title, description]) => (
+          <label key={mode} className={(p.resumeMode || 'original') === mode ? 'selected' : ''}>
+            <input
+              type="radio"
+              name="resume-mode"
+              value={mode}
+              checked={(p.resumeMode || 'original') === mode}
+              onChange={() => onChange({ ...p, resumeMode: mode, confirmed: false })}
+            />
+            <strong>{title}</strong>
+            <span>{description}</span>
+          </label>
+        ))}
+      </div>
+      <p className="help-text">
+        Tailored PDFs use a Jake’s Resume-style, single-column template with selectable text. Review
+        mode lets you inspect changes before final approval. Autopilot uses your saved strategy.
+        Longer histories can span multiple pages.
+      </p>
     </section>
   );
 }

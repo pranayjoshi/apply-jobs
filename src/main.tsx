@@ -7,6 +7,7 @@ import {
   InboxPage,
   FilterFields,
   StructuredHistory,
+  ResumePreferences,
 } from './upgrade';
 import { createRoot } from 'react-dom/client';
 import {
@@ -860,6 +861,8 @@ function App() {
           action={action}
           onClose={() => setDetail(null)}
           paused={s.settings.paused}
+          profile={s.profile}
+          onReviewProfile={() => go('profile')}
         />
       )}
     </div>
@@ -1049,6 +1052,17 @@ function ProfilePage({
       setBusy('');
     }
   };
+  const generateSummary = async () => {
+    setBusy('summary');
+    try {
+      const result = await action(() => api<{ summary: string }>('/profile/summary', p));
+      setP({ ...p, summary: result.summary, confirmed: false });
+      notify('AI summary drafted. Review it and save your profile.');
+    } catch {
+    } finally {
+      setBusy('');
+    }
+  };
   const extract = async () => {
     setBusy('extract');
     try {
@@ -1056,7 +1070,12 @@ function ProfilePage({
       const r = await action(() => api('/profile/extract', {}));
       setP(r);
       setTab('background');
-      notify('Facts extracted. Please check and confirm them.');
+      notify(
+        r.summaryDraftError
+          ? 'Facts extracted. Summary drafting needs another try: ' + r.summaryDraftError
+          : 'Facts extracted. Review your summary and background before confirming.',
+        !!r.summaryDraftError,
+      );
     } catch {
     } finally {
       setBusy('');
@@ -1163,6 +1182,23 @@ function ProfilePage({
                   rows={3}
                   placeholder="What do you bring to your next team?"
                 />
+                <div className="inline-controls">
+                  <Button disabled={!!busy} onClick={() => void generateSummary()}>
+                    {busy === 'summary' ? (
+                      <LoaderCircle className="spin" size={16} />
+                    ) : (
+                      <Sparkles size={16} />
+                    )}
+                    {busy === 'summary'
+                      ? 'Drafting summary…'
+                      : p.summary.trim()
+                        ? 'Regenerate summary with AI'
+                        : 'Generate summary with AI'}
+                  </Button>
+                  <span className="help-text">
+                    Drafted from your résumé and background for your review.
+                  </span>
+                </div>
                 <TextArea
                   label="Work experience"
                   hint="Include employer, title, dates, and achievements. Use a new line for each fact."
@@ -1179,6 +1215,14 @@ function ProfilePage({
                   placeholder="Degree, institution, graduation date"
                 />
                 <TextArea
+                  label="Projects"
+                  hint="Include names, technologies, links and your actual contributions."
+                  value={p.projects || ''}
+                  onChange={(e) => set('projects', e.target.value)}
+                  rows={6}
+                  placeholder="Project · Technologies · Link&#10;What you built and contributed…"
+                />
+                <TextArea
                   label="Skills"
                   hint="Separate skills with commas. These also help personalize your job matches."
                   value={p.skills}
@@ -1187,6 +1231,7 @@ function ProfilePage({
                   placeholder="React, TypeScript, product design…"
                 />
               </section>
+              <ResumePreferences profile={p} onChange={setP} />
               <StructuredHistory profile={p} onChange={setP} />
               <section className="panel form-panel">
                 <h2>Application details</h2>
@@ -1650,7 +1695,11 @@ function ApplicationDrawer({
   action,
   onClose,
   paused,
+  profile,
+  onReviewProfile,
 }: {
+  profile: Profile;
+  onReviewProfile: () => void;
   application: Application;
   action: Action;
   onClose: () => void;
@@ -1703,16 +1752,58 @@ function ApplicationDrawer({
           <span>Automation is paused. Resume it on the Autopilot page before continuing.</span>
         </div>
       )}
-      {editable && (
+      {editable && !profile.confirmed && (
+        <div className="notice">
+          <AlertCircle size={18} />
+          <div>
+            <strong>Your profile needs review.</strong>
+            <p>
+              Check the recovered background and résumé strategy, then confirm and save your
+              profile.
+            </p>
+            <Button variant="primary" onClick={onReviewProfile}>
+              Review & confirm my profile
+            </Button>
+          </div>
+        </div>
+      )}
+      {editable && a.stage === 'review' && (
+        <div className="approval-box">
+          <strong>Ready for the final step</strong>
+          <p>The form is filled. Review your answers and résumé, then approve submission.</p>
+          {!!a.packet?.factEdits?.length && (
+            <button className="text-button" onClick={() => setTab('documents')}>
+              Compare {a.packet.factEdits.length} résumé wording changes
+            </button>
+          )}
+          <Button
+            variant="primary"
+            disabled={!!busy || paused || !profile.confirmed || Object.keys(answers).length > 0}
+            onClick={() =>
+              void run(
+                'submit',
+                () => api(`/applications/${a.id}/approve`, { snapshotHash: a.snapshotHash }),
+                'Submission result recorded',
+              )
+            }
+          >
+            <Send size={15} />
+            {a.job.practice ? 'Submit practice application' : 'Approve & submit application'}
+          </Button>
+        </div>
+      )}
+      {editable && a.stage !== 'review' && (
         <div className="detail-actions">
           <Button
             variant="primary"
-            disabled={!!busy || paused || ['preparing', 'filling'].includes(a.stage)}
+            disabled={
+              !!busy || paused || !profile.confirmed || ['preparing', 'filling'].includes(a.stage)
+            }
             onClick={() =>
               void run(
                 'resume',
                 () => api(`/applications/${a.id}/resume`, {}),
-                'Browser workflow started',
+                'Application is being prepared',
               )
             }
           >
@@ -1730,9 +1821,18 @@ function ApplicationDrawer({
           )}
         </div>
       )}
+      {editable && a.stage === 'review' && hasSession && (
+        <Button
+          variant="secondary"
+          disabled={!!busy}
+          onClick={() => void run('close', () => api(`/applications/${a.id}/close`, {}))}
+        >
+          Close browser
+        </Button>
+      )}
       <div className="tabs drawer-tabs">
         {[
-          ['form', 'Form & answers'],
+          ['form', 'Live activity & answers'],
           ['documents', 'Documents'],
           ['receipt', 'Receipt'],
         ].map(([v, l]) => (
@@ -1743,12 +1843,98 @@ function ApplicationDrawer({
       </div>
       {tab === 'form' && (
         <>
+          <section className="application-live" aria-label="Application progress">
+            <div className="application-live-heading">
+              <span
+                className={
+                  ['preparing', 'filling', 'submitting'].includes(a.stage) ? 'live-dot' : ''
+                }
+              />
+              <strong>
+                {['preparing', 'filling', 'submitting'].includes(a.stage)
+                  ? 'Working on your application'
+                  : a.waitingFor && hasSession
+                    ? 'Watching the employer page'
+                    : a.stage === 'review'
+                      ? 'Application ready for review'
+                      : 'Current application status'}
+              </strong>
+            </div>
+            <p role="status" aria-live="polite">
+              {a.message}
+            </p>
+            {a.waitingFor && hasSession && (
+              <p className="help-text">
+                {a.waitingFor === 'authentication'
+                  ? 'Sign in or complete verification in the application browser. I’ll detect the next screen and continue.'
+                  : 'I’ll retry when the page changes. You can keep this panel open to follow progress.'}
+              </p>
+            )}
+            {a.browserPage && (
+              <p className="application-current-page">
+                <Globe size={13} />
+                <span>{a.browserPage}</span>
+              </p>
+            )}
+            <ol className="application-timeline">
+              {(a.progress || []).slice(-7).map((item, i) => (
+                <li key={`${item.at}-${i}`}>
+                  <span className="timeline-node" />
+                  <div>
+                    <p>{item.message}</p>
+                    <time>
+                      {new Date(item.at).toLocaleTimeString([], {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })}
+                    </time>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+          {hasSession && a.screenshotAt && (
+            <section className="application-browser-preview">
+              <div>
+                <strong>Application browser</strong>
+                <small>Updated {new Date(a.screenshotAt).toLocaleTimeString()}</small>
+              </div>
+              <img
+                src={`/api/applications/${a.id}/screenshot.png?v=${a.screenshotAt}`}
+                alt="Latest employer page in the application browser"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+                onLoad={(e) => {
+                  e.currentTarget.style.display = 'block';
+                }}
+                loading="lazy"
+              />
+            </section>
+          )}
+
+          {!!a.completedSteps?.length && (
+            <details className="document-diff">
+              <summary>{a.completedSteps.length} completed form steps</summary>
+              {a.completedSteps.map((step, i) => (
+                <div key={i}>
+                  <strong>Step {i + 1}</strong>
+                  {step.fields.map((field) => (
+                    <p key={field.id}>
+                      {field.label}:{' '}
+                      {field.type === 'file' ? 'Prepared résumé attached' : field.value}
+                    </p>
+                  ))}
+                </div>
+              ))}
+            </details>
+          )}
+
           {a.fields.length ? (
             <>
               <h3>
-                {a.stage === 'review'
-                  ? 'One last look. Make it yours.'
-                  : 'Your personal touch goes here.'}
+                {a.stage === 'review' ? 'One last look. Make it yours.' : 'Application answers'}
               </h3>
               <p className="help-text">
                 Check every value. Required questions are marked with an asterisk. Changes in the
@@ -1764,7 +1950,9 @@ function ApplicationDrawer({
                         <FileText size={16} />
                         {f.value
                           ? f.value.replace(/^.*[\\/]/, '')
-                          : 'Upload the required document in the browser'}
+                          : f.required
+                            ? 'Waiting for a supported document upload'
+                            : 'Optional upload · no document requested'}
                       </span>
                     ) : f.options.length ? (
                       <select
@@ -1857,8 +2045,9 @@ function ApplicationDrawer({
                         });
                         setAnswers({});
                         setSave({});
+                        await api(`/applications/${a.id}/resume`, {});
                       },
-                      'Answers applied. Resume to validate before submitting.',
+                      'Answers applied. Continuing and validating the form.',
                     )
                   }
                 >
@@ -1901,13 +2090,13 @@ function ApplicationDrawer({
               )}
             </>
           ) : (
-            <Empty
-              icon={FileText}
-              title="The form comes next"
-              description="Open the application browser. Your assistant will prepare your résumé and fill fields from your confirmed profile."
-            />
+            <p className="help-text">
+              {hasSession
+                ? 'Application fields will appear here when the employer form is ready.'
+                : 'Start the application to prepare documents and follow progress here.'}
+            </p>
           )}
-          {hasSession && (
+          {hasSession && !a.screenshotAt && (
             <details className="screenshot">
               <summary>See the latest browser snapshot</summary>
               <img
@@ -1936,6 +2125,35 @@ function ApplicationDrawer({
               <p className="help-text">
                 Prepared {date(a.packet.generatedAt)} · {a.packet.model}
               </p>
+              {editable && a.packet.requiresReview && !a.packet.approved && (
+                <div className="approval-box">
+                  <h3>Review the résumé wording</h3>
+                  <p>
+                    AI changed {a.packet.factEdits?.length || 0} fact lines. Compare each edit with
+                    your original background. Submission follows your saved application policy.
+                  </p>
+                  {a.packet.factEdits?.map((e) => (
+                    <div className="fact-edit" key={e.id}>
+                      <p className="diff-omitted">Original: {e.original}</p>
+                      <p className="diff-kept">Proposed: {e.text}</p>
+                    </div>
+                  ))}
+                  <Button
+                    variant="primary"
+                    disabled={!!busy}
+                    onClick={() =>
+                      void run(
+                        'approve-document',
+                        () => api(`/applications/${a.id}/approve-document`, {}),
+                        'Résumé edits approved. You can submit the reviewed application.',
+                      )
+                    }
+                  >
+                    <Check size={15} />
+                    Mark these résumé edits reviewed
+                  </Button>
+                </div>
+              )}
               {editing ? (
                 <>
                   <TextArea
@@ -1989,8 +2207,14 @@ function ApplicationDrawer({
                           Profile version {documentDiff.profileVersion}.
                           {documentDiff.edited
                             ? ' This document was edited by you.'
-                            : ' Selected facts preserve their original wording.'}
+                            : ' Compare the original facts and the proposed wording below.'}
                         </p>
+                        {(documentDiff.edits || []).map((e: any) => (
+                          <div className="fact-edit" key={e.id}>
+                            <p className="diff-omitted">Original: {e.original}</p>
+                            <p className="diff-kept">Proposed: {e.text}</p>
+                          </div>
+                        ))}
                         {documentDiff.kept.map((f: any) => (
                           <p className="diff-kept" key={f.id}>
                             + {f.text}
@@ -2038,8 +2262,8 @@ function ApplicationDrawer({
             <div className="ai-prepare">
               <h3>A little local intelligence</h3>
               <p>
-                Let your model select relevant facts and draft a cover letter. Résumé facts keep
-                their exact wording.
+                Prepare the résumé using the strategy saved in My profile. AI edits are checked
+                against your background and shown for review.
               </p>
               <Button
                 variant="secondary"
@@ -2047,13 +2271,15 @@ function ApplicationDrawer({
                 onClick={() =>
                   void run(
                     'prepare',
-                    () => api(`/applications/${a.id}/prepare`, { useModel: true }),
+                    () => api(`/applications/${a.id}/prepare`, {}),
                     'Application documents prepared',
                   )
                 }
               >
                 <Sparkles size={15} />
-                {busy === 'prepare' ? 'Preparing with your model…' : 'Tailor with local model'}
+                {busy === 'prepare'
+                  ? 'Preparing with your model…'
+                  : 'Prepare using my résumé strategy'}
               </Button>
             </div>
           )}

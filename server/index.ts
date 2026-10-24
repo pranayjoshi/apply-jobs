@@ -1,3 +1,6 @@
+import { browserPlan } from './browser.ts';
+import { publicURL } from './network.ts';
+import { resumeSections } from './resume-sections.ts';
 import Fastify from 'fastify';
 import {
   extensionOrigin,
@@ -7,7 +10,14 @@ import {
   captureJob,
 } from './extension.ts';
 import { registerUpgradeRoutes } from './upgrade-routes.ts';
-import { catalog, queryJobs, discoveryRun, checkActive, matches } from './discovery.ts';
+import {
+  workdayBoard,
+  catalog,
+  queryJobs,
+  discoveryRun,
+  checkActive,
+  matches,
+} from './discovery.ts';
 import { secretStatus, setSecrets, redact } from './secrets.ts';
 import { inboxState } from './inbox.ts';
 import { startLocalModel, stopLocalModel } from './local-model.ts';
@@ -20,9 +30,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as store from './store.ts';
 import { importURL, rank, syncSource, eligible } from './jobs.ts';
-import { modelStatus, preparePacket, extractResume } from './llm.ts';
+import { modelStatus, preparePacket, extractResume, draftProfileSummary } from './llm.ts';
 import {
   renderPDF,
+  renderPacket,
   textFromPDF,
   ocrPDF,
   ocrImage,
@@ -33,6 +44,7 @@ import {
 import {
   enqueueTick,
   exclusiveProcess,
+  startApplication,
   submitApplication,
   applyAnswers,
   withApplicationLock,
@@ -152,6 +164,7 @@ app.post('/api/extension/revoke', async () => {
 app.get('/api/health', () => ({ name: 'Apply Jobs', status: 'ok', version: '0.2.0' }));
 const str = z.string().max(30000);
 const profileSchema = z.object({
+  resumeMode: z.enum(['original', 'tailored', 'maximize']).optional(),
   employmentHistory: z
     .array(z.object({ company: str, title: str, start: str, end: str, description: str }))
     .max(20)
@@ -168,6 +181,7 @@ const profileSchema = z.object({
   linkedin: str,
   website: str,
   summary: str,
+  projects: str.optional(),
   experience: str,
   education: str,
   skills: str,
@@ -226,6 +240,9 @@ app.post('/api/profile/import', async (req) => {
   await writeFile(path.join(store.dataDir, 'documents', filename), b, { mode: 0o600 });
   const p = store.profile();
   p.resumeText = text.slice(0, 30000);
+  const sections = resumeSections(p.resumeText);
+  for (const key of ['experience', 'education', 'projects', 'skills', 'summary'] as const)
+    if (sections[key]) p[key] = sections[key];
   p.resumeFile = filename;
   p.confirmed = false;
   p.version++;
@@ -233,11 +250,25 @@ app.post('/api/profile/import', async (req) => {
   store.event('Résumé imported; confirm extracted facts before applying');
   return { text: p.resumeText, profile: p };
 });
+app.post('/api/profile/summary', async (req) => {
+  // Work from the current editor draft without saving or confirming it.
+  const p = profileSchema.parse(req.body);
+  return { summary: await draftProfileSummary(p) };
+});
 app.post('/api/profile/extract', async () => {
   const p = store.profile();
   if (!p.resumeText.trim()) throw new Error('Import or paste résumé text first');
-  const extracted = await extractResume(p.resumeText);
-  return { ...p, ...extracted, confirmed: false };
+  let text = p.resumeText;
+  // Repair imports made before PDF line boundaries were preserved, without replacing edited text.
+  if (p.resumeFile.endsWith('.pdf') && path.basename(p.resumeFile) === p.resumeFile) {
+    const restored = await textFromPDF(
+      await readFile(path.join(store.dataDir, 'documents', p.resumeFile)),
+    );
+    const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+    if (normalize(restored).slice(0, 28000) === normalize(text).slice(0, 28000)) text = restored;
+  }
+  const extracted = await extractResume(text);
+  return { ...p, ...extracted, resumeText: text, confirmed: false };
 });
 const settingsSchema = z.object({
   provider: z.enum(['ollama', 'compatible']),
@@ -253,8 +284,9 @@ const settingsSchema = z.object({
   roles: z.string().max(2000),
   locations: z.string().max(2000),
   excludedCompanies: z.string().max(5000),
-  pollMinutes: z.number().min(5).max(1440),
+  pollMinutes: z.number().min(1).max(1440),
   headless: z.boolean(),
+  browser: z.enum(['system', 'chrome', 'edge', 'chromium']).optional(),
   remoteOnly: z.boolean().optional(),
   employmentTypes: z.array(z.string()).max(6).optional(),
   seniority: z.array(z.string()).max(8).optional(),
@@ -264,6 +296,7 @@ const settingsSchema = z.object({
   maxAgeDays: z.number().int().min(0).max(365).optional(),
   onboardingComplete: z.boolean().optional(),
 });
+app.get('/api/browser', async () => browserPlan(store.settings().browser));
 app.put('/api/settings', async (req) => {
   const s = settingsSchema.parse(req.body);
   if (s.autopilot && !store.profile().confirmed)
@@ -300,11 +333,12 @@ app.post('/api/jobs/manual', async (req) => {
     .parse(req.body);
   return importURL(d.url, d);
 });
-app.post('/api/practice', async () => {
+app.post('/api/practice', async (req: any) => {
+  const multiStep = z.object({ multiStep: z.boolean().optional() }).parse(req.body || {}).multiStep;
   const j: Job = {
     id: store.id(),
-    url: `http://127.0.0.1:${port}/practice/apply`,
-    canonicalKey: 'practice:apply-jobs',
+    url: `http://127.0.0.1:${port}/practice/${multiStep ? 'steps' : 'apply'}`,
+    canonicalKey: multiStep ? 'practice:apply-jobs-steps' : 'practice:apply-jobs',
     title: 'Product Engineer',
     company: 'Apply Jobs Practice',
     location: 'Remote',
@@ -358,11 +392,16 @@ app.post('/api/applications/:id/prepare', async (req: any) => {
       throw new Error('Close the browser before preparing new documents');
     const p = store.profile();
     if (!p.confirmed) throw new Error('Confirm your profile first');
-    const { useModel } = z.object({ useModel: z.boolean() }).parse(req.body);
+    const { useModel, mode } = z
+      .object({
+        useModel: z.boolean().optional(),
+        mode: z.enum(['original', 'tailored', 'maximize']).optional(),
+      })
+      .parse(req.body || {});
     store.update(a.id, { stage: 'preparing', message: 'Preparing application documents…' });
     try {
-      const packet = await preparePacket(p, a.job, useModel);
-      await renderPDF(a.id, packet.resumeText);
+      const packet = await preparePacket(p, a.job, mode || useModel);
+      await renderPacket(a.id, packet);
       return store.update(a.id, {
         packet,
         profileVersion: p.version,
@@ -374,6 +413,17 @@ app.post('/api/applications/:id/prepare', async (req: any) => {
       store.update(a.id, { stage: 'needs_user', message: (e as Error).message });
       throw e;
     }
+  });
+});
+app.post('/api/applications/:id/approve-document', async (req: any) => {
+  const aid = pid.parse(req.params.id);
+  return withApplicationLock(aid, async () => {
+    const a = getApp(req);
+    if (!a.packet || ['submitting', 'submitted', 'unknown', 'skipped'].includes(a.stage))
+      throw new Error('No editable résumé draft is available.');
+    if (a.profileVersion !== store.profile().version)
+      throw new Error('Your profile changed. Close the browser and prepare a new résumé first.');
+    return store.update(aid, { packet: { ...a.packet, approved: true } });
   });
 });
 app.post('/api/applications/:id/packet', async (req: any) => {
@@ -404,9 +454,9 @@ app.post('/api/applications/:id/resume', async (req: any, reply) => {
   const a = getApp(req);
   if (['submitting', 'submitted', 'unknown', 'skipped'].includes(a.stage))
     throw new Error('This application cannot be resumed in its current state');
+  startApplication(a.id);
   reply.code(202);
-  void exclusiveProcess(a.id).catch((e) => store.event(e.message, 'warning', a.id));
-  return { message: 'Browser operation started' };
+  return { message: 'Preparing your application', application: store.application(a.id) };
 });
 app.post('/api/applications/:id/answers', async (req: any) => {
   const a = getApp(req);
@@ -519,12 +569,23 @@ app.post('/api/sources', async (req) => {
         'adzuna',
         'usajobs',
         'jooble',
+        'himalayas',
+        'jobicy',
+        'wwr',
+        'rss',
+        'workday',
+        'simplify',
       ]),
-      board: z.string().regex(/^[a-zA-Z0-9_-]{0,150}$/),
+      board: z.string().max(2000),
       region: z.enum(['global', 'eu']).optional(),
       label: z.string().max(200),
     })
     .parse(req.body);
+  if (d.ats === 'rss') await publicURL(d.board);
+  else if (d.ats === 'workday') {
+    workdayBoard(d.board);
+    await publicURL(d.board);
+  } else if (!/^[a-zA-Z0-9_-]{0,150}$/.test(d.board)) throw new Error('Invalid board identifier');
   if (catalog.find((c) => c.kind === d.ats)?.requiresBoard && !d.board)
     throw new Error('This source requires a board identifier or country code');
   if (
@@ -568,6 +629,27 @@ app.get('/api/export', () => ({
 }));
 const practiceHTML = `<!doctype html><html><head><meta charset="utf-8"><title>Apply Jobs · Practice</title><style>body{font:16px/1.6 system-ui;background:#f5f7f6;color:#19352b;max-width:650px;margin:50px auto;padding:24px}form{background:white;padding:32px;border-radius:20px}label{display:block;margin:18px 0}input,textarea{display:block;width:100%;box-sizing:border-box;padding:12px;margin-top:8px;border:1px solid #cdd8d2;border-radius:8px;font:inherit}button{background:#244d3c;color:white;border:0;border-radius:9px;padding:14px 24px;font:inherit}.tag{color:#426b54}</style></head><body><p class="tag">APPLY JOBS / LOCAL PRACTICE</p><h1>Product Engineer</h1><p>This form lives on your computer. Submitting it does not contact an employer.</p><form method="post" action="/practice/complete" enctype="multipart/form-data"><label>Full name<input name="name" required autocomplete="name"></label><label>Email<input name="email" type="email" required></label><label>Location<input name="location" required></label><label>Résumé<input type="file" name="resume" accept=".pdf" required></label><label>What kind of work are you looking for?<textarea name="motivation" required></textarea></label><button type="submit">Submit application</button></form></body></html>`;
 app.get('/practice/apply', (_, reply) => reply.type('text/html').send(practiceHTML));
+app.get('/practice/steps', (_, reply) =>
+  reply
+    .type('text/html')
+    .send(
+      practiceHTML
+        .replace('<label>Full name', '<section data-step="0"><label>Full name')
+        .replace(
+          '<label>What kind',
+          '<button type="button" data-next>Continue to next step</button></section><section data-step="1" hidden><label>What kind',
+        )
+        .replace(
+          '<button type="submit">',
+          '<button type="button" data-next>Continue to review</button></section><section data-step="2" hidden><h2>Review your application</h2><p>Your details and résumé are ready to send to this local practice form.</p><button type="submit">',
+        )
+        .replace(
+          '</form>',
+          '</section></form><script>let step=0;document.querySelectorAll("[data-next]").forEach(button=>button.onclick=()=>{const current=document.querySelector(`[data-step="${step}"]`);if(!Array.from(current.querySelectorAll("input,textarea")).every(el=>el.reportValidity()))return;current.hidden=true;document.querySelector(`[data-step="${++step}"]`).hidden=false;});</script>',
+        ),
+    ),
+);
+
 app.post('/practice/complete', async (req, reply) => {
   for await (const part of req.parts()) {
     if (part.type === 'file') await part.toBuffer();
@@ -590,6 +672,39 @@ if (existsSync(dist)) {
 await registerUpgradeRoutes(app, refreshModels);
 await app.listen({ port, host: '127.0.0.1' });
 store.recover();
+if (!store.getKV('usDiscoveryV1', false)) {
+  if (!store.sources().some((s) => s.ats === 'simplify'))
+    store.saveSource({
+      id: store.id(),
+      ats: 'simplify',
+      board: '',
+      label: 'SimplifyJobs',
+      enabled: true,
+      lastSync: '',
+      lastError: '',
+    });
+  store.setKV('usDiscoveryV1', true);
+}
+if (!store.getKV('expandedDiscoveryV1', false)) {
+  store.setKV('settings', { ...store.settings(), pollMinutes: 2 });
+  for (const kind of ['himalayas', 'jobicy', 'wwr'] as const) {
+    if (!store.sources().some((s) => s.ats === kind))
+      store.saveSource({
+        id: store.id(),
+        ats: kind,
+        board: '',
+        label: catalog.find((c) => c.kind === kind)!.name,
+        enabled: true,
+        lastSync: '',
+        lastError: '',
+      });
+  }
+  for (const source of store
+    .sources()
+    .filter((s) => ['greenhouse', 'lever', 'ashby'].includes(s.ats)))
+    store.saveSource({ ...source, nextSync: undefined });
+  store.setKV('expandedDiscoveryV1', true);
+}
 const previousRun = discoveryRun();
 if (previousRun.status === 'running')
   store.setKV('discovery', { ...previousRun, status: 'completed', finishedAt: store.now() });
@@ -605,6 +720,9 @@ const timer = setInterval(() => {
   if (!syncing && !store.settings().paused) {
     const s = store
       .sources()
+      .sort(
+        (a, b) => Date.parse(a.nextSync || '1970-01-01') - Date.parse(b.nextSync || '1970-01-01'),
+      )
       .find(
         (s) =>
           s.enabled &&
@@ -620,7 +738,12 @@ const timer = setInterval(() => {
         .finally(() => (syncing = false));
     }
   }
-  if (store.settings().autopilot && !store.settings().paused && store.profile().confirmed) {
+  if (
+    store.settings().autopilot &&
+    browserPlan(store.settings().browser).mode === 'managed' &&
+    !store.settings().paused &&
+    store.profile().confirmed
+  ) {
     const cfg = store.settings();
     const existing = new Set(store.applications().map((a) => a.jobId));
     const j = store.jobs().find((j) => eligible(j, cfg) && matches(j, cfg) && !existing.has(j.id));

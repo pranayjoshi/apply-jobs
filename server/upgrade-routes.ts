@@ -22,6 +22,12 @@ import { setSecrets, secretStatus } from './secrets.ts';
 import * as store from './store.ts';
 import { syncInbox, inboxState } from './inbox.ts';
 export const directory = [
+  {
+    name: 'NVIDIA',
+    ats: 'workday',
+    board: 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite',
+    category: 'US · hardware & AI',
+  },
   { name: 'Workable', ats: 'workable', board: 'careers', category: 'Software & operations' },
   {
     name: 'SmartRecruiters',
@@ -60,6 +66,8 @@ export async function registerUpgradeRoutes(
       kept: list.filter((f) => selected.has(f.id)),
       omitted: list.filter((f) => !selected.has(f.id)),
       edited: a.packet.model === 'Reviewed by you',
+      edits: a.packet.factEdits || [],
+      mode: a.packet.mode || 'original',
     };
   });
   app.post('/api/inbox/:id/draft', async (req: any) => {
@@ -112,9 +120,10 @@ export async function registerUpgradeRoutes(
     const q = z
       .object({
         q: z.string().max(300).optional(),
+        country: z.string().max(100).optional(),
         page: z.coerce.number().int().min(1).optional(),
         limit: z.coerce.number().int().min(1).max(100).optional(),
-        sort: z.enum(['fit', 'newest']).optional(),
+        sort: z.enum(['fit', 'newest', 'country']).optional(),
         matching: z.enum(['true', 'false']).optional(),
         status: z.enum(['open', 'closed', 'stale', 'all']).optional(),
         ats: z.string().max(30).optional(),
@@ -155,7 +164,9 @@ export async function registerUpgradeRoutes(
   app.post('/api/onboarding/sources', async (req) => {
     const d = z
       .object({
-        kinds: z.array(z.enum(['remotive', 'remoteok', 'arbeitnow'])).max(3),
+        kinds: z
+          .array(z.enum(['remotive', 'remoteok', 'arbeitnow', 'himalayas', 'jobicy', 'wwr']))
+          .max(6),
         companies: z.array(z.string()).max(20),
       })
       .parse(req.body);

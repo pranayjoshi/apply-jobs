@@ -19,6 +19,8 @@ const profile = {
   location: 'Chicago',
   skills: 'TypeScript, React',
   experience: 'Example Co · Engineer · 2022–2025\nBuilt accessible interfaces.',
+  education: 'Example University · BS Computer Science · 2021',
+  projects: 'Open Dashboard · TypeScript\nBuilt a public data dashboard.',
   confirmed: true,
 };
 const job: Job = {
@@ -97,4 +99,12 @@ test('résumé preparation preserves candidate text and the PDF round-trips as s
   const text = await textFromPDF(await readFile(file));
   assert.match(text, /Alex Example/);
   assert.match(text, /accessible interfaces/);
+  assert.match(text, /PROJECTS/);
+  assert.match(text, /Open Dashboard/);
+  const { resumeSections } = await import('../server/resume-sections.ts');
+  const sections = resumeSections(text);
+  assert.match(sections.experience, /accessible interfaces/);
+  assert.match(sections.education, /Example University/);
+  assert.match(sections.projects, /public data dashboard/);
+  assert(!sections.education.includes('Open Dashboard'));
 });

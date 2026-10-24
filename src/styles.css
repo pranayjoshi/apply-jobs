@@ -3388,3 +3388,38 @@ tbody tr:hover {
 .reply-draft {
   margin-top: 15px;
 }
+
+/* Discovery: stronger company identity and clear, responsive actions. */
+.discovery-banner { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:30px 32px; margin:24px 0 18px; border-radius:22px; color:#fff; background:radial-gradient(ellipse at 90% 10%, #477a60, transparent 60%), #193e34; }
+.discovery-eyebrow {color:#bfe5bc; font-size:11px; letter-spacing:2px; font-weight:800;}
+.discovery-banner h2 {font-size:clamp(22px,2.1vw,32px); letter-spacing:-.7px; margin:10px 0; color:#fff;}
+.discovery-banner p {color:#d4e5dc; margin:0; line-height:1.6;}
+.live-discovery {flex-shrink:0; background:#ffffff12; border:1px solid #ffffff30; padding:16px; border-radius:14px; font-size:13px; font-weight:700;}
+.live-discovery small {display:block; color:#d4e5dc; margin-top:8px; font-size:11px; font-weight:400;}
+.live-dot {display:inline-block; width:8px; height:8px; background:#ace68a; border-radius:50%; margin-right:8px; box-shadow:0 0 0 4px #ace68a18;}
+.discovery-quick-filters {display:flex; flex-wrap:wrap; gap:9px; margin-bottom:18px;}
+.discovery-quick-filters button {padding:10px 16px; background:white; color:#345749; border:1px solid #ccd9d1; border-radius:30px; cursor:pointer; font:inherit; font-size:13px; transition:background .15s;}
+.discovery-quick-filters button.active,.discovery-quick-filters button:hover {background:#214f40; border-color:#214f40; color:white;}
+.enhanced-job.job-card {position:relative; border:1px solid #d5dfda; border-radius:20px; padding:26px; background:linear-gradient(145deg,#fff 75%,#f0f6f3); box-shadow:0 4px 16px #203c2f06; transition:transform .18s,box-shadow .18s,border-color .18s;}
+.enhanced-job.job-card:hover,.enhanced-job.job-card:focus-within {transform:translateY(-4px); border-color:#669c7d; box-shadow:0 12px 28px #203c2f15;}
+.company-brand {display:flex; align-items:center; justify-content:center; width:80px; height:80px; border-radius:18px; border:1px solid #193e3410; font-size:27px; font-weight:800; overflow:hidden; flex-shrink:0; box-shadow:0 3px 8px #193e3408;}
+.company-brand img {width:100%;height:100%;object-fit:contain;padding:10px;background:white;box-sizing:border-box;}
+.enhanced-job .job-company {color:#365748; font-weight:700; font-size:13px; margin-top:18px;}
+.enhanced-job .job-title h3 {font-size:20px;line-height:1.4;color:#17372c;}
+.enhanced-job p {color:#52685d;}
+.enhanced-job .job-preview {font-size:13px;line-height:1.65;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin:4px 0 16px;}
+.enhanced-job .fit-pill {background:#dceede;color:#245738;font-weight:800;border:1px solid #c0dcc2;}
+.new-job-badge {color:#286b52;background:#e5f4e9;font-size:10px;font-weight:800;padding:4px 8px;border-radius:5px;align-self:flex-start;}
+.enhanced-job .job-meta-chips span {background:#eaf0f5;color:#385269;border:1px solid #dce5ee;}
+.enhanced-job .freshness-line {color:#64766c;}
+.enhanced-job .job-card-footer .text-button {background:#214f40;color:#fff;border-radius:9px;padding:10px 13px;font-size:12px;}
+.enhanced-job .job-card-footer .text-button:hover {background:#326b51;}
+@media(max-width:900px) {.discovery-banner {align-items:flex-start;flex-direction:column;padding:24px}.live-discovery {width:100%;box-sizing:border-box;}}
+@media(prefers-reduced-motion:reduce) {.enhanced-job.job-card {transition:none}.enhanced-job.job-card:hover {transform:none}}
+
+.resume-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}.resume-modes label{display:flex;flex-direction:column;gap:10px;border:1px solid var(--line,#dce4df);border-radius:12px;padding:18px;cursor:pointer;font-size:13px;line-height:1.5}.resume-modes label.selected{background:#eef5f0;border-color:#42795b}.resume-modes input{align-self:flex-start;accent-color:#244d3c}.resume-modes strong{font-size:15px}.resume-modes span{color:#66766b}.fact-edit{border-bottom:1px solid #dce4df;padding:10px 0;font-size:13px;line-height:1.6}.fact-edit p{margin:4px 0}@media(max-width:800px){.resume-modes{grid-template-columns:1fr}}
+
+.country-control {display:flex;align-items:center;gap:10px;color:#345749;font-size:13px;font-weight:700;}.country-control select {max-width:240px;padding:10px 12px;border:1px solid #ccd9d1;border-radius:10px;background:white;color:#193e34;}
+.search-results-toolbar {flex-wrap:wrap;gap:14px;}
+
+.application-live {margin:22px 0;padding:22px;border:1px solid #ccded3;border-radius:16px;background:linear-gradient(145deg,#edf5ef,#fff);}.application-live-heading {display:flex;align-items:center;gap:8px;color:#204f3b;font-size:15px;}.application-live>p {font-size:14px;line-height:1.65;color:#355647;}.application-current-page {display:flex;align-items:center;gap:7px;overflow-wrap:anywhere;font-size:11px!important;}.application-timeline {list-style:none;padding:0;margin:18px 0 0;max-height:270px;overflow:auto;}.application-timeline li {display:flex;gap:12px;padding:0 0 14px;position:relative;}.timeline-node {width:7px;height:7px;flex-shrink:0;margin-top:7px;border-radius:50%;background:#80a48e;}.application-timeline li:last-child .timeline-node {background:#245d42;box-shadow:0 0 0 4px #245d4212;}.application-timeline p {font-size:12px;line-height:1.6;margin:0;color:#375446;}.application-timeline time {font-size:10px;color:#718579;}.application-browser-preview {border:1px solid #d8e2db;border-radius:14px;overflow:hidden;margin:0 0 24px;background:#f2f5f3;}.application-browser-preview>div {display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:13px 16px;font-size:12px;}.application-browser-preview small {color:#627669;font-size:10px;}.application-browser-preview img {width:100%;max-height:430px;object-fit:contain;object-position:top;display:block;background:white;}

@@ -147,3 +147,122 @@ test('ATS field inspection and browser filling handle wrapper labels, selected o
     await browser.close();
   }
 });
+
+test('résumé extraction drafts a missing summary, preserves existing summaries and keeps facts if drafting fails', async () => {
+  const { extractResume, draftProfileSummary } = await import('../server/llm.ts');
+  const previousSettings = store.settings();
+  const originalFetch = globalThis.fetch;
+  store.setKV('settings', {
+    ...previousSettings,
+    provider: 'ollama',
+    baseUrl: 'http://localhost:11434',
+    model: 'fixture',
+  });
+  const extracted = {
+    name: 'Alex Example',
+    email: '',
+    phone: '',
+    location: '',
+    headline: '',
+    linkedin: '',
+    website: '',
+    summary: '',
+    projects: '',
+    experience: '',
+    education: '',
+    skills: 'TypeScript, SQL',
+    employmentHistory: [
+      {
+        company: 'Example Co',
+        title: 'Engineer',
+        start: '2021',
+        end: '2024',
+        description: 'Built TypeScript services.',
+      },
+    ],
+    educationHistory: [
+      {
+        school: 'Example University',
+        degree: 'BS',
+        field: 'Computer Science',
+        start: '2017',
+        end: '2021',
+      },
+    ],
+  };
+  let summaryCalls = 0,
+    failDraft = false;
+  globalThis.fetch = (async (_url, options) => {
+    const body = JSON.parse(options!.body as string);
+    const drafting = body.messages[0].content.includes(
+      'Write a concise professional résumé summary',
+    );
+    if (drafting) {
+      summaryCalls++;
+      const input = JSON.parse(body.messages[1].content);
+      assert.match(input.experience, /Example Co/);
+      assert.equal(input.skills, 'TypeScript, SQL');
+      if (failDraft) return new Response('Model unavailable', { status: 503 });
+    }
+    return Response.json({
+      message: {
+        content: JSON.stringify(
+          drafting
+            ? {
+                summary: 'Engineer with experience building TypeScript services and skills in SQL.',
+              }
+            : extracted,
+        ),
+      },
+    });
+  }) as typeof fetch;
+  try {
+    const result = await extractResume(
+      'Engineer at Example Co. Built TypeScript services. BS Computer Science.',
+    );
+    assert.match(result.summary, /TypeScript services/);
+    assert.match(result.experience, /Example Co · Engineer/);
+    assert.match(result.education, /Example University · BS · Computer Science/);
+    assert.equal(summaryCalls, 1);
+    extracted.summary = 'Existing résumé summary.';
+    assert.equal((await extractResume('Résumé with its own summary.')).summary, extracted.summary);
+    assert.equal(summaryCalls, 1);
+    const sectioned = await extractResume(
+      'Alex Example\nEDUCATION\nExample University — BS Computer Science, 2021\nPROFESSIONAL EXPERIENCE\nExample Co — Engineer, 2021–2024\nBuilt TypeScript services.\nSELECTED PROJECTS\nOpen Dashboard — TypeScript, SQL\nBuilt public dashboards.\nCERTIFICATIONS\nUnrelated certificate',
+    );
+    assert.match(sectioned.education, /Example University/);
+    assert.match(sectioned.experience, /Built TypeScript services/);
+    assert.match(sectioned.projects, /Open Dashboard/);
+    assert(!sectioned.projects.includes('Unrelated certificate'));
+    extracted.summary = '';
+    failDraft = true;
+    const partial = await extractResume('Engineer at Example Co.');
+    assert.match(partial.experience, /Example Co/);
+    assert.match(partial.summaryDraftError, /503/);
+    await assert.rejects(draftProfileSummary(store.blankProfile), /Add your résumé/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    store.setKV('settings', previousSettings);
+  }
+});
+
+test('application navigation advances dynamic steps and exposes invalid fields instead of looping clicks', async () => {
+  const { chromium } = await import('playwright');
+  const { findButton, advancePage, formProblems } = await import('../server/adapters.ts');
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(
+      `<form><label>Email<input type="email" required></label><button type="submit">Continue to review</button></form><script>document.querySelector('form').onsubmit=e=>{e.preventDefault();document.body.innerHTML='<h1>Review application</h1><button>Submit your application</button>'}</script>`,
+    );
+    let next = await findButton(page, 'next');
+    assert(next);
+    assert.equal(await advancePage(page, next), false);
+    assert.equal((await formProblems(page)).length, 1);
+    await page.getByLabel('Email').fill('alex@example.test');
+    assert.equal(await advancePage(page, next), true);
+    assert(await findButton(page, 'submit'));
+  } finally {
+    await browser.close();
+  }
+});
