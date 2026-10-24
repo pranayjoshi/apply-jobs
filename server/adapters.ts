@@ -9,7 +9,10 @@ export interface Adapter {
   nextNames: RegExp;
   fieldContainer: string;
 }
-const submit = /^(submit(?: your)? application|send application|submit|apply)$/i;
+const submit =
+  /^(submit(?: your| my)?(?: job)? application(?: to .+)?|send(?: my)? application|submit|apply)(?:\s*[›→»])?$/i;
+const next =
+  /^(next(?: step|: .+)?|(?:save and )?continue(?: to (?:application|review|next step))?)(?:\s*[›→»])?$/i;
 export const adapters: Adapter[] = [
   {
     id: 'greenhouse',
@@ -18,7 +21,7 @@ export const adapters: Adapter[] = [
     mode: 'automatic',
     applyNames: /^(apply(?: now| for this job)?|apply for this position)$/i,
     submitNames: submit,
-    nextNames: /^(next|continue)$/i,
+    nextNames: next,
     fieldContainer: '.field,.input-wrapper,[data-testid="field"],fieldset',
   },
   {
@@ -28,7 +31,7 @@ export const adapters: Adapter[] = [
     mode: 'automatic',
     applyNames: /^(apply(?: now| for this job)?)$/i,
     submitNames: submit,
-    nextNames: /^(next|continue)$/i,
+    nextNames: next,
     fieldContainer: '.application-question,.application-label,.custom-question,fieldset',
   },
   {
@@ -38,7 +41,7 @@ export const adapters: Adapter[] = [
     mode: 'automatic',
     applyNames: /^(apply(?: now| for this job)?|application)$/i,
     submitNames: submit,
-    nextNames: /^(next|continue)$/i,
+    nextNames: next,
     fieldContainer: '[class*="application-form-field"],[class*="field-entry"],fieldset',
   },
   {
@@ -48,7 +51,7 @@ export const adapters: Adapter[] = [
     mode: 'automatic',
     applyNames: /^(apply(?: now| for this job)?|i.m interested)$/i,
     submitNames: /^(submit(?: application)?|send application|apply)$/i,
-    nextNames: /^(next|continue|save and continue)$/i,
+    nextNames: next,
     fieldContainer: '[class*="form-field"],[class*="question"],fieldset',
   },
   {
@@ -58,7 +61,7 @@ export const adapters: Adapter[] = [
     mode: 'automatic',
     applyNames: /^(apply(?: now| for this job)?|apply for this position)$/i,
     submitNames: submit,
-    nextNames: /^(next|continue)$/i,
+    nextNames: next,
     fieldContainer: '[data-ui="form-field"],[class*="form-field"],fieldset',
   },
   {
@@ -68,7 +71,7 @@ export const adapters: Adapter[] = [
     mode: 'assisted',
     applyNames: /^(apply|apply manually|apply without autofill|apply now)$/i,
     submitNames: /^(submit|submit application)$/i,
-    nextNames: /^(next|continue|save and continue)$/i,
+    nextNames: next,
     fieldContainer: '[data-automation-id="formField"],[data-automation-id^="formField-"],fieldset',
   },
   {
@@ -98,7 +101,7 @@ export const adapters: Adapter[] = [
     mode: 'assisted',
     applyNames: /^(apply|apply now|apply for this job|apply for this role)$/i,
     submitNames: submit,
-    nextNames: /^(next|continue|save and continue|next step)$/i,
+    nextNames: next,
     fieldContainer: 'fieldset,[class*="form-field"]',
   },
 ];
@@ -112,6 +115,7 @@ export function adapterFor(url: string) {
 export async function findButton(
   page: Page,
   kind: 'submit' | 'next' | 'apply',
+  includeDisabled = false,
 ): Promise<Locator | null> {
   const adapter = adapterFor(page.url());
   const name =
@@ -124,7 +128,7 @@ export async function findButton(
     for (const role of kind === 'apply' ? (['link', 'button'] as const) : (['button'] as const)) {
       const candidates = frame.getByRole(role, { name });
       for (const item of await candidates.all()) {
-        if ((await item.isVisible()) && (await item.isEnabled())) return item;
+        if ((await item.isVisible()) && (includeDisabled || (await item.isEnabled()))) return item;
       }
     }
   }
@@ -168,4 +172,97 @@ export async function enterApplication(page: Page) {
     await page.goto(url, { waitUntil: 'domcontentloaded' });
   }
   return before !== page.url() || !!button;
+}
+
+/** Wait for client-rendered career pages and follow ordinary application entry links. */
+export async function reachApplication(
+  page: Page,
+  options: {
+    ready: () => Promise<boolean>;
+    blocked: () => Promise<boolean>;
+    checkRunning: () => void;
+    timeoutMs?: number;
+  },
+): Promise<'ready' | 'blocked' | 'unavailable'> {
+  const deadline = Date.now() + (options.timeoutMs ?? 30000);
+  const visited = new Set<string>();
+  while (Date.now() < deadline && !page.isClosed()) {
+    options.checkRunning();
+    if (await options.blocked()) return 'blocked';
+    if (await options.ready()) return 'ready';
+    const button = await findButton(page, 'apply');
+    if (button && visited.size < 6) {
+      const key = JSON.stringify([
+        page.url(),
+        await button.innerText(),
+        await button.getAttribute('href'),
+      ]);
+      if (!visited.has(key)) {
+        visited.add(key);
+        options.checkRunning();
+        await enterApplication(page);
+      }
+    }
+    await page.waitForTimeout(500);
+  }
+  return 'unavailable';
+}
+
+export async function formProblems(page: Page) {
+  const problems: { id: string; message: string }[] = [];
+  for (const frame of page.frames()) {
+    try {
+      problems.push(
+        ...(await frame.evaluate(() =>
+          Array.from(
+            document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+              'input,select,textarea',
+            ),
+          )
+            .filter(
+              (el) =>
+                el.willValidate &&
+                (!document.querySelector('[data-aj-field]') || el.hasAttribute('data-aj-field')) &&
+                !el.validity.valid &&
+                (!!el.getClientRects().length || el.type === 'file'),
+            )
+            .map((el) => ({
+              id: el.getAttribute('data-aj-field') || '',
+              message: el.validationMessage || 'Check this field',
+            })),
+        )),
+      );
+    } catch {}
+  }
+  return problems;
+}
+export async function pageFingerprint(page: Page) {
+  const frames = [];
+  for (const frame of page.frames()) {
+    try {
+      frames.push(
+        await frame.evaluate(() => ({
+          url: location.href,
+          text: document.body.innerText.slice(0, 24000),
+          fields: Array.from(
+            document.querySelectorAll<HTMLInputElement>('input,select,textarea'),
+          ).map((el) => [el.name, el.type, el.value, el.checked, el.disabled]),
+          actions: Array.from(
+            document.querySelectorAll<HTMLButtonElement>('button,[role="button"]'),
+          ).map((el) => [el.textContent, el.disabled, el.getAttribute('aria-disabled')]),
+        })),
+      );
+    } catch {}
+  }
+  return JSON.stringify(frames);
+}
+export async function advancePage(page: Page, button: Locator) {
+  const before = await pageFingerprint(page);
+  await button.click({ timeout: 10000 });
+  for (let i = 0; i < 32; i++) {
+    await page.waitForTimeout(250);
+    if ((await pageFingerprint(page)) !== before) return true;
+    if ((await formProblems(page)).length) return false;
+  }
+  return false;
 }

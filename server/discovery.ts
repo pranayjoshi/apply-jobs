@@ -1,17 +1,145 @@
 import * as cheerio from 'cheerio';
 import type { Job, WatchSource, SourceCatalogItem, DiscoveryRun, Settings } from '../src/types.ts';
-import { publicFetch, publicURL } from './network.ts';
+import { publicFetch, publicURL, cachedFeed } from './network.ts';
 import { secret, redact } from './secrets.ts';
 import * as store from './store.ts';
 import { canonical, detectATS, includesTerm, rank } from './jobs.ts';
+export function workdayBoard(input: string) {
+  const u = new URL(input);
+  if (
+    u.protocol !== 'https:' ||
+    !/^[a-z0-9-]+\.wd[0-9]+\.myworkdayjobs\.com$/.test(u.hostname) ||
+    u.username ||
+    u.password ||
+    u.port
+  )
+    throw new Error('Use a public Workday employer career URL');
+  const parts = u.pathname.split('/').filter(Boolean);
+  if (/^[a-z]{2}-[A-Z]{2}$/.test(parts[0] || '')) parts.shift();
+  if (!parts[0] || !/^[a-zA-Z0-9_-]+$/.test(parts[0]))
+    throw new Error('Include the Workday career site name');
+  return {
+    origin: u.origin,
+    tenant: u.hostname.split('.')[0],
+    site: parts[0],
+    url: u.origin + '/' + parts[0],
+  };
+}
+const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
+const countryAliases = new Map<string, string>();
+for (let a = 65; a <= 90; a++)
+  for (let b = 65; b <= 90; b++) {
+    const code = String.fromCharCode(a, b);
+    const name = countryNames.of(code);
+    if (name && name !== code) countryAliases.set(name.toLowerCase(), name);
+  }
+Object.entries({
+  usa: 'United States',
+  us: 'United States',
+  'united states of america': 'United States',
+  uk: 'United Kingdom',
+  'south korea': 'South Korea',
+  uae: 'United Arab Emirates',
+}).forEach(([a, b]) => countryAliases.set(a, b));
+const usStates = new Set(
+  'AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.split(
+    ' ',
+  ),
+);
+export function jobCountries(j: Pick<Job, 'location'>): string[] {
+  const parts = j.location
+    .split(/[,;|/()]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const found = new Set<string>();
+  for (const part of parts) {
+    const name = countryAliases.get(part.toLowerCase());
+    if (name) found.add(name);
+    else if (/^[A-Z]{2}$/.test(part) && !usStates.has(part)) {
+      const n = countryNames.of(part);
+      if (n && n !== part) found.add(n);
+    }
+  }
+  if (!found.size && parts.length > 1 && parts.some((p) => usStates.has(p)))
+    found.add('United States');
+  return [...found].sort();
+}
 export const catalog: SourceCatalogItem[] = [
+  {
+    kind: 'workday',
+    name: 'Workday employer boards',
+    description:
+      'Public employer career search. Paste a company Workday URL; coverage varies by tenant.',
+    requiresBoard: true,
+    requiresKey: false,
+    minIntervalMinutes: 2,
+    attribution: 'Employer career page',
+    docs: '',
+  },
+  {
+    kind: 'simplify',
+    name: 'Simplify Jobs · new grad & internships',
+    description:
+      'Public SimplifyJobs GitHub lists; entry-level tech coverage, not the full Simplify database.',
+    requiresBoard: false,
+    requiresKey: false,
+    minIntervalMinutes: 60,
+    attribution: 'SimplifyJobs',
+    docs: 'https://github.com/SimplifyJobs/New-Grad-Positions',
+  },
+  ...(
+    [
+      [
+        'himalayas',
+        'Himalayas',
+        'Remote jobs worldwide; daily provider updates',
+        1440,
+        false,
+        'https://himalayas.app/api',
+      ],
+      [
+        'jobicy',
+        'Jobicy',
+        'Recent remote jobs, with company logos and salary',
+        60,
+        false,
+        'https://github.com/Jobicy/remote-jobs-api',
+      ],
+      [
+        'wwr',
+        'We Work Remotely',
+        'Public remote job feed across all categories',
+        15,
+        false,
+        'https://weworkremotely.com/remote-job-rss-feed',
+      ],
+      [
+        'rss',
+        'Any RSS / Atom job feed',
+        'Connect a public job feed URL from another board',
+        2,
+        true,
+        '',
+      ],
+    ] as const
+  ).map(([kind, name, description, minIntervalMinutes, requiresBoard, docs]) => ({
+    kind,
+    name,
+    description,
+    minIntervalMinutes,
+    requiresBoard,
+    docs,
+    requiresKey: false,
+    attribution: name,
+  })),
+
   {
     kind: 'greenhouse',
     name: 'Greenhouse',
     description: 'Public company career boards',
     requiresBoard: true,
     requiresKey: false,
-    minIntervalMinutes: 30,
+    minIntervalMinutes: 2,
     attribution: 'Employer career page',
     docs: 'https://docs.greenhouse.io/job-board',
   },
@@ -21,7 +149,7 @@ export const catalog: SourceCatalogItem[] = [
     description: 'Global and European company career boards',
     requiresBoard: true,
     requiresKey: false,
-    minIntervalMinutes: 30,
+    minIntervalMinutes: 2,
     attribution: 'Employer career page',
     docs: 'https://github.com/lever/postings-api',
   },
@@ -31,7 +159,7 @@ export const catalog: SourceCatalogItem[] = [
     description: 'Direct employer job postings and compensation',
     requiresBoard: true,
     requiresKey: false,
-    minIntervalMinutes: 30,
+    minIntervalMinutes: 2,
     attribution: 'Employer career page',
     docs: 'https://developers.ashbyhq.com/docs/public-job-posting-api',
   },
@@ -128,8 +256,19 @@ const iso = (v: unknown) => {
   const d = new Date(typeof v === 'number' ? v * 1000 : String(v));
   return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
 };
+const money = (v: unknown) => {
+  const value =
+    typeof v === 'number'
+      ? v
+      : typeof v === 'string' && v.trim()
+        ? Number(v.replace(/,/g, '').trim())
+        : Number.NaN;
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+};
 const jobType = (v: unknown) => {
-  const label = String(v || '').trim().toLowerCase();
+  const label = String(v || '')
+    .trim()
+    .toLowerCase();
   if (/\b(?:intern(?:ship)?|apprentice(?:ship)?)\b/.test(label)) return 'internship';
   if (/\bpart[\s_-]*time\b/.test(label)) return 'parttime';
   if (/\b(?:full[\s_-]*time|permanent)\b/.test(label)) return 'fulltime';
@@ -143,6 +282,38 @@ export function level(title: string) {
   if (/\b(?:lead|leader|staff|principal)\b/i.test(title)) return 'lead';
   if (/\bsenior\b|\bsr\b/i.test(title)) return 'senior';
   return 'unknown';
+}
+function safeLogo(value: unknown): string | undefined {
+  try {
+    const u = new URL(String(value || ''));
+    return u.protocol === 'https:' && !u.username && !u.password ? u.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+export function parseJobFeed(xml: string) {
+  const $ = cheerio.load(xml, { xmlMode: true });
+  if (!$('rss, feed, RDF').length) throw new Error('Expected an RSS or Atom feed');
+  return $('item, entry')
+    .slice(0, 500)
+    .toArray()
+    .map((node) => {
+      const entry = $(node);
+      const fullTitle = entry.find('title').first().text();
+      const split = fullTitle.indexOf(': ');
+      return {
+        title: split > 0 ? fullTitle.slice(split + 2) : fullTitle,
+        company:
+          entry.find('company, author name, creator').first().text() ||
+          (split > 0 ? fullTitle.slice(0, split) : ''),
+        url:
+          entry.find('link[rel="alternate"]').attr('href') ||
+          entry.find('link').first().attr('href') ||
+          entry.find('link').first().text(),
+        description: entry.find('description, content, summary').first().text(),
+        publishedAt: entry.find('pubDate, published, updated').first().text(),
+      };
+    });
 }
 export function fromSource(s: WatchSource, x: any): Job | undefined {
   let url = '',
@@ -161,6 +332,76 @@ export function fromSource(s: WatchSource, x: any): Job | undefined {
     externalId = String(x.id || x.slug || x.shortcode || x.code || '');
   let attribution: Job['attribution'];
   switch (s.ats) {
+    case 'workday': {
+      const board = workdayBoard(s.board);
+      if (!String(x.externalPath || '').startsWith('/job/')) return;
+      url = board.url + x.externalPath;
+      title = x.title;
+      company = s.label || board.tenant;
+      location = x.locationsText;
+      description = x.title + ' — ' + x.locationsText;
+      externalId = x.bulletFields?.[0] || x.externalPath;
+      attribution = { name: company + ' careers', url };
+      break;
+    }
+    case 'simplify':
+      if (x.active === false || x.is_visible === false) return;
+      url = x.url;
+      title = x.title;
+      company = x.company_name;
+      location = (x.locations || []).join('; ');
+      description = [x.title, x.category, ...(x.degrees || [])].filter(Boolean).join(' · ');
+      publishedAt = x.date_posted;
+      employmentType = x._internship ? 'internship' : 'fulltime';
+      attribution = { name: 'SimplifyJobs', url: x._repo };
+      break;
+    case 'himalayas':
+      url = x.applicationLink;
+      title = x.title;
+      company = x.companyName;
+      location = (x.locationRestrictions || []).join(', ') || 'Worldwide';
+      description = x.description || x.excerpt;
+      publishedAt = x.pubDate;
+      validThrough = x.expiryDate;
+      remote = true;
+      employmentType = x.employmentType;
+      salaryMin = x.minSalary;
+      salaryMax = x.maxSalary;
+      salaryCurrency = x.currency;
+      salaryPeriod = x.salaryPeriod;
+      attribution = {
+        name: 'Himalayas',
+        url: 'https://himalayas.app' + (String(x.guid || '').startsWith('/') ? x.guid : ''),
+      };
+      break;
+    case 'jobicy':
+      url = x.url;
+      title = x.jobTitle;
+      company = x.companyName;
+      location = x.jobGeo;
+      description = x.jobDescription || x.jobExcerpt;
+      publishedAt = x.pubDate;
+      remote = true;
+      employmentType = x.jobType?.[0];
+      salaryMin = x.salaryMin;
+      salaryMax = x.salaryMax;
+      salaryCurrency = x.salaryCurrency;
+      salaryPeriod = x.salaryPeriod;
+      attribution = { name: 'Jobicy', url: x.url };
+      break;
+    case 'wwr':
+    case 'rss':
+      url = x.url;
+      title = x.title;
+      company = x.company || s.label || 'Employer';
+      description = x.description;
+      publishedAt = x.publishedAt;
+      remote = s.ats === 'wwr';
+      attribution = {
+        name: s.label || (s.ats === 'wwr' ? 'We Work Remotely' : 'RSS feed'),
+        url: x.url,
+      };
+      break;
     case 'greenhouse':
       url = x.absolute_url;
       title = x.title;
@@ -322,9 +563,17 @@ export function fromSource(s: WatchSource, x: any): Job | undefined {
       attribution = { name: 'Jooble', url: x.link };
       break;
   }
-  title = String(title || '').trim().slice(0, 500);
-  company = String(company || s.label || s.board).trim().slice(0, 300);
-  location = String(location || '').trim().slice(0, 500);
+  title = String(title || '')
+    .trim()
+    .slice(0, 500);
+  company = String(company || s.label || s.board)
+    .trim()
+    .slice(0, 300);
+  location = String(location || '')
+    .trim()
+    .slice(0, 500);
+  salaryMin = money(salaryMin);
+  salaryMax = money(salaryMax);
   if (!url || !title) return;
   try {
     const u = new URL(url);
@@ -338,6 +587,7 @@ export function fromSource(s: WatchSource, x: any): Job | undefined {
     canonicalKey: canonical(url),
     title,
     company,
+    companyLogo: safeLogo(x.companyLogo || x.company_logo || x.company_logo_url || x.logo),
     location,
     description: text(description),
     ats: detectATS(url),
@@ -416,8 +666,81 @@ export async function syncOne(s: WatchSource) {
       list: any[] = [],
       complete = true;
     const read = async (url: string, options?: Parameters<typeof publicFetch>[2]) =>
-      JSON.parse((await publicFetch(url, 25_000_000, options)).text);
+      JSON.parse(
+        (await (options ? publicFetch(url, 25_000_000, options) : cachedFeed(url, 25_000_000)))
+          .text,
+      );
     switch (s.ats) {
+      case 'workday': {
+        const board = workdayBoard(s.board);
+        for (let offset = 0; offset < 100; offset += 20) {
+          raw = await read(`${board.origin}/wday/cxs/${board.tenant}/${board.site}/jobs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ appliedFacets: {}, limit: 20, offset, searchText: '' }),
+          });
+          if (!Array.isArray(raw.jobPostings))
+            throw new Error('This Workday tenant did not return public job search results');
+          list.push(...raw.jobPostings);
+          if (!raw.jobPostings.length || list.length >= raw.total) break;
+        }
+        // Bounded search pages are never an inventory of the entire employer.
+        complete = false;
+        break;
+      }
+      case 'simplify':
+        for (const repo of ['New-Grad-Positions', 'Summer2027-Internships']) {
+          raw = await read(
+            `https://raw.githubusercontent.com/SimplifyJobs/${repo}/dev/.github/scripts/listings.json`,
+          );
+          if (!Array.isArray(raw)) throw new Error('Unexpected SimplifyJobs list');
+          list.push(
+            ...raw.map((x) => ({
+              ...x,
+              _repo: `https://github.com/SimplifyJobs/${repo}`,
+              _internship: repo !== 'New-Grad-Positions',
+            })),
+          );
+        }
+        complete = true;
+        break;
+      case 'wwr':
+      case 'rss':
+        list = parseJobFeed(
+          (
+            await cachedFeed(
+              s.ats === 'wwr' ? 'https://weworkremotely.com/remote-jobs.rss' : s.board,
+              5_000_000,
+            )
+          ).text,
+        );
+        complete = false;
+        break;
+      case 'himalayas':
+        for (let page = 1; page <= 5; page++) {
+          raw = await read(`https://himalayas.app/jobs/api/search?sort=recent&page=${page}`);
+          if (!Array.isArray(raw.jobs)) throw new Error('Unexpected Himalayas response');
+          list.push(...raw.jobs);
+          if (!raw.jobs.length) break;
+        }
+        complete = false;
+        break;
+      case 'jobicy':
+        {
+          let cursor = '';
+          for (let page = 0; page < 5; page++) {
+            raw = await read(
+              'https://jobicy.com/api/jobs?count=100' +
+                (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''),
+            );
+            if (!Array.isArray(raw.jobs)) throw new Error('Unexpected Jobicy response');
+            list.push(...raw.jobs);
+            cursor = raw.nextCursor || '';
+            if (!cursor) break;
+          }
+          complete = false;
+        }
+        break;
       case 'greenhouse':
         raw = await read(`https://boards-api.greenhouse.io/v1/boards/${b}/jobs?content=true`);
         if (!Array.isArray(raw.jobs)) throw new Error('Unexpected Greenhouse response');
@@ -530,8 +853,7 @@ export async function syncOne(s: WatchSource) {
                     sort_by: 'date',
                     results_per_page: '50',
                   });
-                  if (maxAgeDays > 0)
-                    qs.set('max_days_old', String(Math.min(60, maxAgeDays)));
+                  if (maxAgeDays > 0) qs.set('max_days_old', String(Math.min(60, maxAgeDays)));
                   raw = await read(
                     `https://api.adzuna.com/v1/api/jobs/${b || 'us'}/search/${page}?${qs}`,
                   );
@@ -625,9 +947,7 @@ export function matches(j: Job, s: Settings) {
   if (
     locations.length &&
     !locations.some(
-      (x) =>
-        includesTerm(j.location + ' ' + j.description, x) ||
-        (x === 'remote' && j.remote),
+      (x) => includesTerm(j.location + ' ' + j.description, x) || (x === 'remote' && j.remote),
     )
   )
     return false;
@@ -672,6 +992,7 @@ export function queryJobs(query: {
   status?: string;
   ats?: string;
   remoteOnly?: boolean;
+  country?: string;
 }) {
   const settings = store.settings();
   let list = store.jobs().map((j) => ({ ...j, status: freshness(j) }));
@@ -688,15 +1009,27 @@ export function queryJobs(query: {
     );
   if (query.ats) list = list.filter((j) => j.ats === query.ats);
   if (query.remoteOnly) list = list.filter((j) => j.remote);
+  const countries = [...new Set(list.flatMap(jobCountries))].sort();
+  if (query.country)
+    list = list.filter((j) =>
+      query.country === 'Unknown'
+        ? !jobCountries(j).length
+        : jobCountries(j).includes(query.country!),
+    );
   list.sort(
-    query.sort === 'newest'
+    query.sort === 'country'
       ? (a, b) =>
-          Date.parse(b.publishedAt || b.createdAt) - Date.parse(a.publishedAt || a.createdAt)
-      : (a, b) => b.score - a.score || Date.parse(b.createdAt) - Date.parse(a.createdAt),
+          (jobCountries(a)[0] || 'ZZZ').localeCompare(jobCountries(b)[0] || 'ZZZ') ||
+          b.score - a.score
+      : query.sort === 'newest'
+        ? (a, b) =>
+            Date.parse(b.publishedAt || b.createdAt) - Date.parse(a.publishedAt || a.createdAt)
+        : (a, b) => b.score - a.score || Date.parse(b.createdAt) - Date.parse(a.createdAt),
   );
   const page = Math.max(1, query.page || 1),
     limit = Math.min(100, Math.max(1, query.limit || 24));
   return {
+    countries,
     jobs: list.slice((page - 1) * limit, page * limit),
     total: list.length,
     page,
@@ -772,6 +1105,8 @@ export function parseBoard(input: string): Partial<WatchSource> {
   } catch {
     throw new Error('Paste a career-page URL');
   }
+  if (u.hostname.endsWith('.myworkdayjobs.com'))
+    return { ats: 'workday', board: workdayBoard(input).url, url: workdayBoard(input).url };
   const segments = u.pathname.split('/').filter(Boolean);
   const ats = detectATS(u.href);
   if (['greenhouse', 'lever', 'ashby', 'smartrecruiters'].includes(ats) && segments[0])

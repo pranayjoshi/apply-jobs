@@ -63,7 +63,7 @@ export async function publicFetch(
   input: string,
   maxBytes = 3_000_000,
   options: { method?: string; headers?: Record<string, string>; body?: string } = {},
-): Promise<{ text: string; url: string }> {
+): Promise<{ text: string; url: string; etag?: string; modified?: string }> {
   let { url: u, addresses } = await validatedURL(input);
   let requestMethod = options.method || 'GET';
   let requestHeaders = { ...options.headers };
@@ -146,6 +146,7 @@ export async function publicFetch(
         addresses = next.addresses;
         continue;
       }
+      if (r.status === 304) { await r.body?.cancel(); return { text: '', url: u.href, etag: '__not_modified__' }; }
       if (!r.ok) {
         await r.body?.cancel();
         throw new Error(`Source returned HTTP ${r.status}`);
@@ -164,10 +165,29 @@ export async function publicFetch(
         }
         chunks.push(value);
       }
-      return { text: Buffer.concat(chunks).toString('utf8'), url: u.href };
+      return { text: Buffer.concat(chunks).toString('utf8'), url: u.href, etag: r.headers.get('etag') || undefined, modified: r.headers.get('last-modified') || undefined };
     } finally {
       await dispatcher.close();
     }
   }
   throw new Error('Too many redirects');
+}
+
+// Bounded conditional-response cache for public discovery feeds only.
+const feedCache = new Map<string, { text: string; url: string; etag?: string; modified?: string }>();
+export async function cachedFeed(url: string, maxBytes = 5_000_000) {
+  const prior = feedCache.get(url);
+  const result = await publicFetch(url, maxBytes, { headers: {
+    ...(prior?.etag ? { 'If-None-Match': prior.etag } : {}),
+    ...(prior?.modified ? { 'If-Modified-Since': prior.modified } : {}),
+  }});
+  if (result.etag === '__not_modified__') {
+    if (!prior) throw new Error('Unexpected unchanged feed response');
+    return prior;
+  }
+  feedCache.delete(url);
+  // Keep the total string payload below 20 MB, and no more than 64 URLs.
+  while (feedCache.size && (feedCache.size >= 64 || [...feedCache.values()].reduce((n, x) => n + Buffer.byteLength(x.text), 0) + Buffer.byteLength(result.text) > 20_000_000)) feedCache.delete(feedCache.keys().next().value!);
+  if (Buffer.byteLength(result.text) <= 20_000_000) feedCache.set(url, result);
+  return result;
 }
